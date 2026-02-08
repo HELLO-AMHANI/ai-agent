@@ -1,0 +1,6 @@
+langchain
+langchain-openai
+python-dotenv
+yfinance
+google-search-results
+click
