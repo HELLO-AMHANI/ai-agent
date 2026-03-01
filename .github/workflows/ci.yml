@@ -39,4 +39,4 @@ jobs:
           OPENAI_MODEL: gpt-5-mini
           AGENT_NAME: AMHANi
         run: |
-          python -m pytest tests/smoke_test.py -v
+          python -m pytest tests.py -v

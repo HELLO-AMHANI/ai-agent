@@ -8,3 +8,4 @@ google-search-results
 click
 streamlit
 watchdog
+pytest
