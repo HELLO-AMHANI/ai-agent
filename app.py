@@ -16,7 +16,7 @@ st.set_page_config(
 # ── Brand constants ──────────────────────────────────────────────────────────
 BRAND_NAME       = "AMHANi"
 INTERFACE_TITLE  = "CONSULTAMHANi"
-FREE_LIMIT       = 5
+FREE_LIMIT       = 3
 AGENT_NAME       = os.getenv("AGENT_NAME", "AMHANi")
 
 # ── Gold & White theme ───────────────────────────────────────────────────────
@@ -58,20 +58,20 @@ html, body, [class*="css"] {
 
 .amhani-wordmark {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 3.6rem;
-    font-weight: 700;
-    letter-spacing: 0.18em;
+    font-size: 6.6rem;
+    font-weight: 720;
+    letter-spacing: 0.24em;
     background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 50%, var(--gold-dim) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    margin: 0;
+    margin: 1;
     line-height: 1;
 }
 
 .amhani-sub {
-    font-size: 0.65rem;
-    font-weight: 500;
+    font-size: 0.55rem;
+    font-weight: 450;
     letter-spacing: 0.42em;
     color: var(--gold-dim);
     text-transform: uppercase;
@@ -229,7 +229,7 @@ if not st.session_state.subscribed and st.session_state.usage_count >= FREE_LIMI
             Subscribe to {INTERFACE_TITLE} for unlimited real-time financial intelligence —
             stock analysis, market research, P/E ratios, and more.
         </div>
-        <div class="paywall-price">₦ 9,999</div>
+        <div class="paywall-price">$ 6.99</div>
         <div class="paywall-period">per month &nbsp;·&nbsp; cancel anytime</div>
     </div>
     """, unsafe_allow_html=True)
@@ -279,10 +279,10 @@ if not st.session_state.messages:
             What would you like to explore?
         </div>
         <div style="font-size:0.78rem; line-height:2.2; letter-spacing:0.04em;">
-            "Get me the stock price of TSLA"<br>
+            "Get me the stock price of TRANSCORP"<br>
             "What is the P/E ratio for a stock at $200 with EPS of 10"<br>
             "Search for latest news on Apple earnings"<br>
-            "Compare AAPL and MSFT market caps"
+            "Compare OANDO and CVX market caps"
         </div>
     </div>
     """, unsafe_allow_html=True)

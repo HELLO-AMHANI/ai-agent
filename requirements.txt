@@ -7,3 +7,4 @@ yfinance
 google-search-results
 click
 streamlit
+watchdog
