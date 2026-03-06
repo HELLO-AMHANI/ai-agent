@@ -1,11 +1,12 @@
-# app.py — AMHANi | CONSULTAMHANi Interface
+# app.py — AMHANi | CONSULTAMHANi | Phase 3
 import os
 import streamlit as st
 from dotenv import load_dotenv
+from limiter import get_usage, increment_usage, is_limited, remaining, FREE_LIMIT
 
 load_dotenv()
 
-# ── Page config (must be first Streamlit call) ──────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="CONSULTAMHANi",
     page_icon="✦",
@@ -13,27 +14,28 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Brand constants ──────────────────────────────────────────────────────────
-BRAND_NAME       = "AMHANi"
-INTERFACE_TITLE  = "CONSULTAMHANi"
-FREE_LIMIT       = 3
-AGENT_NAME       = os.getenv("AGENT_NAME", "AMHANi")
+# ── Brand constants ───────────────────────────────────────────────────────────
+BRAND_NAME      = "AMHANi"
+INTERFACE_TITLE = "CONSULTAMHANi"
+AGENT_NAME      = os.getenv("AGENT_NAME", "AMHANi")
+STRIPE_LINK     = os.getenv("STRIPE_LINK", "#")   # add your Stripe link to .env in Phase 4
 
-# ── Gold & White theme ───────────────────────────────────────────────────────
+# ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Montserrat:wght@300;400;500;600&display=swap');
 
 :root {
-    --gold:        #C9A84C;
-    --gold-light:  #E8C97A;
-    --gold-dim:    #8B6914;
-    --white:       #FAFAF7;
-    --off-white:   #F0EDE4;
-    --black:       #0A0A08;
-    --surface:     #111109;
-    --surface-2:   #1A1A14;
-    --border:      rgba(201, 168, 76, 0.25);
+    --gold:       #C9A84C;
+    --gold-light: #E8C97A;
+    --gold-dim:   #8B6914;
+    --white:      #FAFAF7;
+    --off-white:  #F0EDE4;
+    --black:      #0A0A08;
+    --surface:    #111109;
+    --surface-2:  #1A1A14;
+    --border:     rgba(201,168,76,0.25);
+    --red:        #C0392B;
 }
 
 html, body, [class*="css"] {
@@ -41,135 +43,118 @@ html, body, [class*="css"] {
     background-color: var(--black) !important;
     color: var(--white) !important;
 }
-
-.stApp {
-    background: linear-gradient(160deg, #0A0A08 0%, #111109 50%, #0D0D0A 100%);
-}
-
+.stApp { background: linear-gradient(160deg,#0A0A08 0%,#111109 50%,#0D0D0A 100%); }
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 780px; }
 
-.amhani-header {
-    text-align: center;
-    padding: 3rem 1rem 1.5rem;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 2rem;
-}
+/* Header */
+.amhani-header { text-align:center; padding:3rem 1rem 1.5rem; border-bottom:1px solid var(--border); margin-bottom:2rem; }
+.amhani-wordmark { font-family:'Cormorant Garamond',serif; font-size:3.6rem; font-weight:700; letter-spacing:0.18em; background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 50%,var(--gold-dim) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; margin:0; line-height:1; }
+.amhani-sub { font-size:0.65rem; font-weight:500; letter-spacing:0.42em; color:var(--gold-dim); text-transform:uppercase; margin-top:0.5rem; }
+.amhani-tagline { font-family:'Cormorant Garamond',serif; font-size:1.05rem; font-weight:300; color:rgba(250,250,247,0.55); margin-top:1rem; font-style:italic; }
 
-.amhani-wordmark {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 6.6rem;
-    font-weight: 720;
-    letter-spacing: 0.24em;
-    background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 50%, var(--gold-dim) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin: 1;
-    line-height: 1;
-}
+/* Usage bar */
+.usage-bar-wrap { display:flex; align-items:center; justify-content:space-between; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.6rem 1rem; margin-bottom:1.5rem; font-size:0.72rem; letter-spacing:0.08em; color:var(--gold); text-transform:uppercase; }
+.usage-dots { display:flex; gap:6px; }
+.dot { width:10px; height:10px; border-radius:50%; border:1px solid var(--gold-dim); background:transparent; }
+.dot.used { background:var(--gold); border-color:var(--gold); }
+.dot.warn { background:var(--red); border-color:var(--red); }
 
-.amhani-sub {
-    font-size: 0.55rem;
-    font-weight: 450;
-    letter-spacing: 0.42em;
-    color: var(--gold-dim);
-    text-transform: uppercase;
-    margin-top: 0.5rem;
-}
+/* Chat */
+.msg-wrap { display:flex; flex-direction:column; gap:1rem; margin-bottom:1.5rem; }
+.msg { display:flex; flex-direction:column; max-width:88%; }
+.msg.user  { align-self:flex-end;  align-items:flex-end; }
+.msg.agent { align-self:flex-start; align-items:flex-start; }
+.msg-label { font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; margin-bottom:0.3rem; font-weight:600; }
+.msg.user  .msg-label { color:var(--gold-dim); }
+.msg.agent .msg-label { color:var(--gold); }
+.msg-bubble { padding:0.85rem 1.1rem; border-radius:8px; font-size:0.88rem; line-height:1.65; font-weight:300; }
+.msg.user  .msg-bubble { background:var(--surface-2); border:1px solid var(--border); color:var(--off-white); border-bottom-right-radius:2px; }
+.msg.agent .msg-bubble { background:linear-gradient(135deg,rgba(201,168,76,0.08) 0%,rgba(201,168,76,0.03) 100%); border:1px solid rgba(201,168,76,0.35); color:var(--white); border-bottom-left-radius:2px; }
 
-.amhani-tagline {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1.05rem;
-    font-weight: 300;
-    color: rgba(250, 250, 247, 0.55);
-    margin-top: 1rem;
-    font-style: italic;
-}
+/* Input */
+.stTextInput>div>div>input { background:var(--surface-2) !important; border:1px solid var(--border) !important; border-radius:8px !important; color:var(--white) !important; font-family:'Montserrat',sans-serif !important; font-size:0.88rem !important; padding:0.75rem 1rem !important; font-weight:300 !important; }
+.stTextInput>div>div>input:focus { border-color:var(--gold) !important; box-shadow:0 0 0 1px rgba(201,168,76,0.3) !important; }
+.stTextInput>div>div>input::placeholder { color:rgba(250,250,247,0.25) !important; }
 
-.usage-bar-wrap {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.6rem 1rem;
-    margin-bottom: 1.5rem;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    color: var(--gold);
-    text-transform: uppercase;
-}
+/* Buttons */
+.stButton>button { background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 100%) !important; color:var(--black) !important; border:none !important; border-radius:6px !important; font-family:'Montserrat',sans-serif !important; font-weight:600 !important; font-size:0.75rem !important; letter-spacing:0.15em !important; text-transform:uppercase !important; padding:0.6rem 1.5rem !important; transition:opacity 0.2s !important; }
+.stButton>button:hover { opacity:0.88 !important; }
 
-.usage-dots { display: flex; gap: 6px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--gold-dim); background: transparent; }
-.dot.used { background: var(--gold); border-color: var(--gold); }
+/* Paywall */
+.paywall-card { background:var(--surface-2); border:1px solid var(--gold); border-radius:12px; padding:2.5rem 2rem 2rem; text-align:center; margin-top:1rem; }
+.paywall-icon { font-size:2rem; margin-bottom:0.5rem; }
+.paywall-title { font-family:'Cormorant Garamond',serif; font-size:2rem; font-weight:600; color:var(--gold-light); margin-bottom:0.5rem; letter-spacing:0.05em; }
+.paywall-body { font-size:0.82rem; color:rgba(250,250,247,0.6); line-height:1.8; font-weight:300; margin-bottom:1.5rem; }
+.paywall-stats { display:flex; justify-content:center; gap:2rem; margin-bottom:1.5rem; }
+.paywall-stat { text-align:center; }
+.paywall-stat-num { font-family:'Cormorant Garamond',serif; font-size:1.8rem; color:var(--gold); font-weight:700; }
+.paywall-stat-label { font-size:0.62rem; letter-spacing:0.15em; text-transform:uppercase; color:rgba(250,250,247,0.4); margin-top:0.2rem; }
+.paywall-price { font-family:'Cormorant Garamond',serif; font-size:2.8rem; font-weight:700; color:var(--gold); }
+.paywall-period { font-size:0.7rem; color:var(--gold-dim); letter-spacing:0.15em; text-transform:uppercase; margin-bottom:1.5rem; }
+.paywall-perks { text-align:left; background:rgba(201,168,76,0.05); border-radius:8px; padding:1rem 1.2rem; margin-bottom:1.5rem; }
+.paywall-perk { font-size:0.78rem; color:rgba(250,250,247,0.7); line-height:2; }
+.paywall-perk::before { content:"✦ "; color:var(--gold); }
 
-.msg-wrap { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
-.msg { display: flex; flex-direction: column; max-width: 88%; }
-.msg.user  { align-self: flex-end;  align-items: flex-end; }
-.msg.agent { align-self: flex-start; align-items: flex-start; }
+/* Warning banner */
+.warn-banner { background:rgba(192,57,43,0.12); border:1px solid rgba(192,57,43,0.4); border-radius:6px; padding:0.6rem 1rem; margin-bottom:1rem; font-size:0.75rem; color:#E74C3C; text-align:center; letter-spacing:0.05em; }
 
-.msg-label { font-size: 0.6rem; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 0.3rem; font-weight: 600; }
-.msg.user  .msg-label { color: var(--gold-dim); }
-.msg.agent .msg-label { color: var(--gold); }
-
-.msg-bubble { padding: 0.85rem 1.1rem; border-radius: 8px; font-size: 0.88rem; line-height: 1.65; font-weight: 300; }
-.msg.user  .msg-bubble { background: var(--surface-2); border: 1px solid var(--border); color: var(--off-white); border-bottom-right-radius: 2px; }
-.msg.agent .msg-bubble { background: linear-gradient(135deg, rgba(201,168,76,0.08) 0%, rgba(201,168,76,0.03) 100%); border: 1px solid rgba(201,168,76,0.35); color: var(--white); border-bottom-left-radius: 2px; }
-
-.stTextInput > div > div > input {
-    background: var(--surface-2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-    color: var(--white) !important;
-    font-family: 'Montserrat', sans-serif !important;
-    font-size: 0.88rem !important;
-    padding: 0.75rem 1rem !important;
-    font-weight: 300 !important;
-}
-.stTextInput > div > div > input:focus { border-color: var(--gold) !important; box-shadow: 0 0 0 1px rgba(201,168,76,0.3) !important; }
-.stTextInput > div > div > input::placeholder { color: rgba(250,250,247,0.25) !important; }
-
-.stButton > button {
-    background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 100%) !important;
-    color: var(--black) !important;
-    border: none !important;
-    border-radius: 6px !important;
-    font-family: 'Montserrat', sans-serif !important;
-    font-weight: 600 !important;
-    font-size: 0.75rem !important;
-    letter-spacing: 0.15em !important;
-    text-transform: uppercase !important;
-    padding: 0.6rem 1.5rem !important;
-}
-.stButton > button:hover { opacity: 0.88 !important; }
-
-.paywall-card { background: var(--surface-2); border: 1px solid var(--gold); border-radius: 10px; padding: 2rem 2rem 1.5rem; text-align: center; margin-top: 1rem; }
-.paywall-title { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; font-weight: 600; color: var(--gold-light); margin-bottom: 0.5rem; }
-.paywall-body { font-size: 0.82rem; color: rgba(250,250,247,0.6); line-height: 1.7; font-weight: 300; margin-bottom: 1.5rem; }
-.paywall-price { font-family: 'Cormorant Garamond', serif; font-size: 2.4rem; font-weight: 700; color: var(--gold); margin-bottom: 0.2rem; }
-.paywall-period { font-size: 0.7rem; color: var(--gold-dim); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 1.5rem; }
-
-.gold-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: var(--black); }
-::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 2px; }
+/* Divider */
+.gold-divider { border:none; border-top:1px solid var(--border); margin:1.5rem 0; }
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:var(--black); }
+::-webkit-scrollbar-thumb { background:var(--gold-dim); border-radius:2px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Session state init ────────────────────────────────────────────────────────
-if "messages"     not in st.session_state: st.session_state.messages     = []
-if "usage_count"  not in st.session_state: st.session_state.usage_count  = 0
-if "subscribed"   not in st.session_state: st.session_state.subscribed   = False
-if "executor"     not in st.session_state: st.session_state.executor     = None
 
-# ── Load agent (cached across reruns) ────────────────────────────────────────
+# ── Session state init ────────────────────────────────────────────────────────
+defaults = {
+    "messages":    [],
+    "subscribed":  False,
+    "executor":    None,
+    "session_q":   0,       # questions asked this browser session
+    "ip":          None,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+
+# ── Resolve visitor IP (Step 1 & 2) ──────────────────────────────────────────
+# Streamlit doesn't expose raw IP — we use a session-unique key as proxy.
+# In production (deployed), swap this for request headers via a middleware layer.
+if st.session_state.ip is None:
+    import uuid
+    # Use a cookie-persisted UUID as the visitor identifier
+    # Falls back to a session UUID if cookies aren't available
+    try:
+        from streamlit_cookies_manager import EncryptedCookieManager
+        cookies = EncryptedCookieManager(
+            prefix="amhani_",
+            password=os.getenv("COOKIE_SECRET", "amhani-default-secret-change-in-prod"),
+        )
+        if not cookies.ready():
+            st.stop()
+        if "visitor_id" not in cookies:
+            cookies["visitor_id"] = str(uuid.uuid4())
+            cookies.save()
+        st.session_state.ip = cookies["visitor_id"]
+    except Exception:
+        # Fallback: session-only UUID (resets on new browser tab — acceptable for MVP)
+        if "visitor_id" not in st.session_state:
+            st.session_state["visitor_id"] = str(uuid.uuid4())
+        st.session_state.ip = st.session_state["visitor_id"]
+
+VISITOR_ID = st.session_state.ip
+
+
+# ── Load agent (cached) ───────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_agent():
     from agent import build_agent
     return build_agent(agent_name=AGENT_NAME, verbose=False)
+
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
@@ -180,6 +165,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+
 # ── Load agent on first run ───────────────────────────────────────────────────
 if st.session_state.executor is None:
     with st.spinner("Initialising CONSULTAMHANi..."):
@@ -189,20 +175,39 @@ if st.session_state.executor is None:
             st.error(f"Startup error: {e}")
             st.stop()
 
-# ── Usage indicator ───────────────────────────────────────────────────────────
+
+# ── Usage check (Step 2 — IP/visitor tracking) ────────────────────────────────
+visitor_remaining = remaining(VISITOR_ID)
+visitor_limited   = is_limited(VISITOR_ID)
+visitor_used      = FREE_LIMIT - visitor_remaining
+
+
+# ── Usage indicator (Step 1 — persistent dots) ────────────────────────────────
 if not st.session_state.subscribed:
-    used      = st.session_state.usage_count
-    remaining = max(0, FREE_LIMIT - used)
-    dots_html = "".join(
-        f'<div class="dot{"" if i >= used else " used"}"></div>'
-        for i in range(FREE_LIMIT)
-    )
+    dots_html = ""
+    for i in range(FREE_LIMIT):
+        if i < visitor_used:
+            css = "used" if i < FREE_LIMIT - 1 else "warn"
+            dots_html += f'<div class="dot {css}"></div>'
+        else:
+            dots_html += '<div class="dot"></div>'
+
+    label_color = "color:#E74C3C;" if visitor_remaining <= 1 else ""
     st.markdown(f"""
     <div class="usage-bar-wrap">
-        <span>Free consultations remaining: <strong>{remaining}</strong></span>
+        <span style="{label_color}">Free consultations remaining: <strong>{visitor_remaining}</strong></span>
         <div class="usage-dots">{dots_html}</div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Warning on last question
+    if visitor_remaining == 1:
+        st.markdown("""
+        <div class="warn-banner">
+            ⚠ &nbsp; This is your last free consultation. Subscribe for unlimited access.
+        </div>
+        """, unsafe_allow_html=True)
+
 
 # ── Chat history ──────────────────────────────────────────────────────────────
 if st.session_state.messages:
@@ -219,27 +224,57 @@ if st.session_state.messages:
     st.markdown(msgs_html, unsafe_allow_html=True)
     st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
 
-# ── Paywall ───────────────────────────────────────────────────────────────────
-if not st.session_state.subscribed and st.session_state.usage_count >= FREE_LIMIT:
+
+# ── Paywall (Step 3 & 4 — upgraded card) ─────────────────────────────────────
+if not st.session_state.subscribed and visitor_limited:
+    # Pull last topics from session messages for personalised paywall
+    topics = [m["content"][:40] + "..." for m in st.session_state.messages if m["role"] == "user"]
+    topics_str = " · ".join(topics[:3]) if topics else "stocks, markets, financial data"
+
     st.markdown(f"""
     <div class="paywall-card">
-        <div class="paywall-title">Unlock Full Access</div>
+        <div class="paywall-icon">✦</div>
+        <div class="paywall-title">You've Found Your Edge</div>
         <div class="paywall-body">
-            You've used your {FREE_LIMIT} complimentary consultations.<br>
-            Subscribe to {INTERFACE_TITLE} for unlimited real-time financial intelligence —
-            stock analysis, market research, P/E ratios, and more.
+            You explored: <em style="color:var(--gold-dim)">{topics_str}</em><br><br>
+            You've used your {FREE_LIMIT} complimentary consultations.
+            Unlock unlimited access to AMHANi's full financial intelligence suite.
         </div>
-        <div class="paywall-price">$ 6.99</div>
+        <div class="paywall-stats">
+            <div class="paywall-stat">
+                <div class="paywall-stat-num">{visitor_used}</div>
+                <div class="paywall-stat-label">Questions Asked</div>
+            </div>
+            <div class="paywall-stat">
+                <div class="paywall-stat-num">∞</div>
+                <div class="paywall-stat-label">With Subscription</div>
+            </div>
+            <div class="paywall-stat">
+                <div class="paywall-stat-num">24/7</div>
+                <div class="paywall-stat-label">Always Available</div>
+            </div>
+        </div>
+        <div class="paywall-price">₦ 9,999</div>
         <div class="paywall-period">per month &nbsp;·&nbsp; cancel anytime</div>
+        <div class="paywall-perks">
+            <div class="paywall-perk">Unlimited financial consultations</div>
+            <div class="paywall-perk">Real-time stock price lookups</div>
+            <div class="paywall-perk">Market research & news analysis</div>
+            <div class="paywall-perk">P/E ratio & financial metric calculators</div>
+            <div class="paywall-perk">Priority response speed</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("SUBSCRIBE NOW", use_container_width=True):
-            # Replace with your actual Stripe payment link in Phase 4
-            st.info("Stripe payment link — add in Phase 4.")
+        if st.button("SUBSCRIBE TO CONSULTAMHANi", use_container_width=True):
+            st.markdown(
+                f'<meta http-equiv="refresh" content="0; url={STRIPE_LINK}">',
+                unsafe_allow_html=True,
+            )
     st.stop()
+
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 col_input, col_btn = st.columns([5, 1])
@@ -255,6 +290,7 @@ with col_input:
 with col_btn:
     send = st.button("ASK", use_container_width=True)
 
+
 # ── Run agent ──────────────────────────────────────────────────────────────────
 if send and user_input.strip():
     question = user_input.strip()
@@ -268,28 +304,33 @@ if send and user_input.strip():
             response = f"An error occurred: {e}"
 
     st.session_state.messages.append({"role": "agent", "content": response})
-    st.session_state.usage_count += 1
+
+    # Increment persistent usage counter (Step 2)
+    increment_usage(VISITOR_ID)
+    st.session_state.session_q += 1
     st.rerun()
+
 
 # ── Welcome state ──────────────────────────────────────────────────────────────
 if not st.session_state.messages:
     st.markdown("""
-    <div style="text-align:center; padding: 3rem 1rem; color: rgba(250,250,247,0.3);">
+    <div style="text-align:center; padding:3rem 1rem; color:rgba(250,250,247,0.3);">
         <div style="font-family:'Cormorant Garamond',serif; font-size:1.3rem; margin-bottom:0.75rem; color:rgba(201,168,76,0.5);">
             What would you like to explore?
         </div>
         <div style="font-size:0.78rem; line-height:2.2; letter-spacing:0.04em;">
-            "Get me the stock price of TRANSCORP"<br>
+            "Get me the stock price of TSLA"<br>
             "What is the P/E ratio for a stock at $200 with EPS of 10"<br>
             "Search for latest news on Apple earnings"<br>
-            "Compare OANDO and CVX market caps"
+            "Compare AAPL and MSFT market caps"
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+
 # ── Footer ──────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align:center; padding: 2rem 0 0.5rem; border-top: 1px solid rgba(201,168,76,0.12); margin-top:2rem;">
+<div style="text-align:center; padding:2rem 0 0.5rem; border-top:1px solid rgba(201,168,76,0.12); margin-top:2rem;">
     <span style="font-size:0.62rem; letter-spacing:0.25em; text-transform:uppercase; color:rgba(201,168,76,0.35);">
         AMHANi &nbsp;·&nbsp; #CONSULTAMHANi &nbsp;·&nbsp; Financial Intelligence
     </span>

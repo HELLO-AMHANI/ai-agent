@@ -9,3 +9,5 @@ click
 streamlit
 watchdog
 pytest
+requests
+streamlit-cookies-manager
