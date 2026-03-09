@@ -1,8 +1,10 @@
-# app.py — AMHANi | CONSULTAMHANi | Phase 3
+# app.py — AMHANi | CONSULTAMHANi | Phase 4
 import os
 import streamlit as st
 from dotenv import load_dotenv
 from limiter import get_usage, increment_usage, is_limited, remaining, FREE_LIMIT
+from auth import init_auth_state, is_logged_in, get_user_email, logout, render_auth_ui, check_subscription
+from payments import create_subscription_link, get_subscription_status
 
 load_dotenv()
 
@@ -14,11 +16,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Brand constants ───────────────────────────────────────────────────────────
 BRAND_NAME      = "AMHANi"
 INTERFACE_TITLE = "CONSULTAMHANi"
 AGENT_NAME      = os.getenv("AGENT_NAME", "AMHANi")
-STRIPE_LINK     = os.getenv("STRIPE_LINK", "#")   # add your Stripe link to .env in Phase 4
+APP_URL         = os.getenv("APP_URL", "http://localhost:8501")
 
 # ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -36,22 +37,26 @@ st.markdown("""
     --surface-2:  #1A1A14;
     --border:     rgba(201,168,76,0.25);
     --red:        #C0392B;
+    --green:      #27AE60;
 }
 
-html, body, [class*="css"] {
-    font-family: 'Montserrat', sans-serif;
-    background-color: var(--black) !important;
-    color: var(--white) !important;
-}
-.stApp { background: linear-gradient(160deg,#0A0A08 0%,#111109 50%,#0D0D0A 100%); }
-#MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 780px; }
+html, body, [class*="css"] { font-family:'Montserrat',sans-serif; background-color:var(--black) !important; color:var(--white) !important; }
+.stApp { background:linear-gradient(160deg,#0A0A08 0%,#111109 50%,#0D0D0A 100%); }
+#MainMenu, footer, header { visibility:hidden; }
+.block-container { padding-top:2rem; padding-bottom:2rem; max-width:780px; }
 
 /* Header */
-.amhani-header { text-align:center; padding:3rem 1rem 1.5rem; border-bottom:1px solid var(--border); margin-bottom:2rem; }
+.amhani-header { text-align:center; padding:2.5rem 1rem 1.5rem; border-bottom:1px solid var(--border); margin-bottom:2rem; }
 .amhani-wordmark { font-family:'Cormorant Garamond',serif; font-size:3.6rem; font-weight:700; letter-spacing:0.18em; background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 50%,var(--gold-dim) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; margin:0; line-height:1; }
 .amhani-sub { font-size:0.65rem; font-weight:500; letter-spacing:0.42em; color:var(--gold-dim); text-transform:uppercase; margin-top:0.5rem; }
 .amhani-tagline { font-family:'Cormorant Garamond',serif; font-size:1.05rem; font-weight:300; color:rgba(250,250,247,0.55); margin-top:1rem; font-style:italic; }
+
+/* Account bar */
+.account-bar { display:flex; align-items:center; justify-content:space-between; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.55rem 1rem; margin-bottom:1.2rem; font-size:0.72rem; }
+.account-email { color:rgba(250,250,247,0.5); letter-spacing:0.04em; }
+.account-badge { font-size:0.62rem; letter-spacing:0.15em; text-transform:uppercase; font-weight:600; padding:0.2rem 0.6rem; border-radius:20px; }
+.badge-pro { background:rgba(201,168,76,0.15); color:var(--gold); border:1px solid rgba(201,168,76,0.3); }
+.badge-free { background:rgba(250,250,247,0.05); color:rgba(250,250,247,0.35); border:1px solid rgba(250,250,247,0.1); }
 
 /* Usage bar */
 .usage-bar-wrap { display:flex; align-items:center; justify-content:space-between; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.6rem 1rem; margin-bottom:1.5rem; font-size:0.72rem; letter-spacing:0.08em; color:var(--gold); text-transform:uppercase; }
@@ -78,28 +83,29 @@ html, body, [class*="css"] {
 .stTextInput>div>div>input::placeholder { color:rgba(250,250,247,0.25) !important; }
 
 /* Buttons */
-.stButton>button { background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 100%) !important; color:var(--black) !important; border:none !important; border-radius:6px !important; font-family:'Montserrat',sans-serif !important; font-weight:600 !important; font-size:0.75rem !important; letter-spacing:0.15em !important; text-transform:uppercase !important; padding:0.6rem 1.5rem !important; transition:opacity 0.2s !important; }
+.stButton>button { background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 100%) !important; color:var(--black) !important; border:none !important; border-radius:6px !important; font-family:'Montserrat',sans-serif !important; font-weight:600 !important; font-size:0.75rem !important; letter-spacing:0.15em !important; text-transform:uppercase !important; padding:0.6rem 1.5rem !important; }
 .stButton>button:hover { opacity:0.88 !important; }
 
 /* Paywall */
 .paywall-card { background:var(--surface-2); border:1px solid var(--gold); border-radius:12px; padding:2.5rem 2rem 2rem; text-align:center; margin-top:1rem; }
-.paywall-icon { font-size:2rem; margin-bottom:0.5rem; }
-.paywall-title { font-family:'Cormorant Garamond',serif; font-size:2rem; font-weight:600; color:var(--gold-light); margin-bottom:0.5rem; letter-spacing:0.05em; }
+.paywall-title { font-family:'Cormorant Garamond',serif; font-size:2rem; font-weight:600; color:var(--gold-light); margin-bottom:0.5rem; }
 .paywall-body { font-size:0.82rem; color:rgba(250,250,247,0.6); line-height:1.8; font-weight:300; margin-bottom:1.5rem; }
 .paywall-stats { display:flex; justify-content:center; gap:2rem; margin-bottom:1.5rem; }
-.paywall-stat { text-align:center; }
 .paywall-stat-num { font-family:'Cormorant Garamond',serif; font-size:1.8rem; color:var(--gold); font-weight:700; }
-.paywall-stat-label { font-size:0.62rem; letter-spacing:0.15em; text-transform:uppercase; color:rgba(250,250,247,0.4); margin-top:0.2rem; }
+.paywall-stat-label { font-size:0.62rem; letter-spacing:0.15em; text-transform:uppercase; color:rgba(250,250,247,0.4); }
 .paywall-price { font-family:'Cormorant Garamond',serif; font-size:2.8rem; font-weight:700; color:var(--gold); }
 .paywall-period { font-size:0.7rem; color:var(--gold-dim); letter-spacing:0.15em; text-transform:uppercase; margin-bottom:1.5rem; }
 .paywall-perks { text-align:left; background:rgba(201,168,76,0.05); border-radius:8px; padding:1rem 1.2rem; margin-bottom:1.5rem; }
 .paywall-perk { font-size:0.78rem; color:rgba(250,250,247,0.7); line-height:2; }
 .paywall-perk::before { content:"✦ "; color:var(--gold); }
 
-/* Warning banner */
+/* Plan status card */
+.plan-card { background:var(--surface-2); border:1px solid rgba(39,174,96,0.3); border-radius:8px; padding:1rem 1.2rem; margin-bottom:1.2rem; display:flex; align-items:center; justify-content:space-between; }
+.plan-active { font-size:0.72rem; letter-spacing:0.12em; text-transform:uppercase; color:#2ECC71; font-weight:600; }
+
+/* Warning */
 .warn-banner { background:rgba(192,57,43,0.12); border:1px solid rgba(192,57,43,0.4); border-radius:6px; padding:0.6rem 1rem; margin-bottom:1rem; font-size:0.75rem; color:#E74C3C; text-align:center; letter-spacing:0.05em; }
 
-/* Divider */
 .gold-divider { border:none; border-top:1px solid var(--border); margin:1.5rem 0; }
 ::-webkit-scrollbar { width:4px; }
 ::-webkit-scrollbar-track { background:var(--black); }
@@ -109,30 +115,27 @@ html, body, [class*="css"] {
 
 
 # ── Session state init ────────────────────────────────────────────────────────
-defaults = {
-    "messages":    [],
-    "subscribed":  False,
-    "executor":    None,
-    "session_q":   0,       # questions asked this browser session
-    "ip":          None,
+init_auth_state()
+
+session_defaults = {
+    "messages":   [],
+    "executor":   None,
+    "ip":         None,
+    "session_q":  0,
 }
-for k, v in defaults.items():
+for k, v in session_defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 
-# ── Resolve visitor IP (Step 1 & 2) ──────────────────────────────────────────
-# Streamlit doesn't expose raw IP — we use a session-unique key as proxy.
-# In production (deployed), swap this for request headers via a middleware layer.
+# ── Visitor ID (for free-tier tracking) ───────────────────────────────────────
 if st.session_state.ip is None:
     import uuid
-    # Use a cookie-persisted UUID as the visitor identifier
-    # Falls back to a session UUID if cookies aren't available
     try:
         from streamlit_cookies_manager import EncryptedCookieManager
         cookies = EncryptedCookieManager(
             prefix="amhani_",
-            password=os.getenv("COOKIE_SECRET", "amhani-default-secret-change-in-prod"),
+            password=os.getenv("COOKIE_SECRET", "amhani-secret"),
         )
         if not cookies.ready():
             st.stop()
@@ -141,7 +144,6 @@ if st.session_state.ip is None:
             cookies.save()
         st.session_state.ip = cookies["visitor_id"]
     except Exception:
-        # Fallback: session-only UUID (resets on new browser tab — acceptable for MVP)
         if "visitor_id" not in st.session_state:
             st.session_state["visitor_id"] = str(uuid.uuid4())
         st.session_state.ip = st.session_state["visitor_id"]
@@ -149,14 +151,14 @@ if st.session_state.ip is None:
 VISITOR_ID = st.session_state.ip
 
 
-# ── Load agent (cached) ───────────────────────────────────────────────────────
+# ── Load agent ─────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_agent():
     from agent import build_agent
     return build_agent(agent_name=AGENT_NAME, verbose=False)
 
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="amhani-header">
     <p class="amhani-wordmark">{BRAND_NAME}</p>
@@ -166,7 +168,45 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
-# ── Load agent on first run ───────────────────────────────────────────────────
+# ── Step 4: Auth gate — show login/signup if not logged in ────────────────────
+if not is_logged_in():
+    render_auth_ui()
+    st.stop()
+
+
+# ── Step 5: Subscriber check — logged-in users ───────────────────────────────
+user        = st.session_state.user
+user_email  = get_user_email()
+subscribed  = st.session_state.is_subscriber
+
+# Re-verify subscription status on each session load (catches cancellations)
+if subscribed is False:
+    live_status = get_subscription_status(user_email)
+    if live_status == "active":
+        st.session_state.is_subscriber = True
+        subscribed = True
+
+
+# ── Account bar (Step 6) ───────────────────────────────────────────────────────
+badge_class = "badge-pro"  if subscribed else "badge-free"
+badge_label = "PRO ✦"      if subscribed else "FREE"
+short_email = user_email[:28] + "..." if len(user_email) > 28 else user_email
+
+col_bar, col_logout = st.columns([5, 1])
+with col_bar:
+    st.markdown(f"""
+    <div class="account-bar">
+        <span class="account-email">{short_email}</span>
+        <span class="account-badge {badge_class}">{badge_label}</span>
+    </div>
+    """, unsafe_allow_html=True)
+with col_logout:
+    if st.button("EXIT", key="logout_btn"):
+        logout()
+        st.rerun()
+
+
+# ── Load agent on first run ────────────────────────────────────────────────────
 if st.session_state.executor is None:
     with st.spinner("Initialising CONSULTAMHANi..."):
         try:
@@ -176,22 +216,16 @@ if st.session_state.executor is None:
             st.stop()
 
 
-# ── Usage check (Step 2 — IP/visitor tracking) ────────────────────────────────
-visitor_remaining = remaining(VISITOR_ID)
-visitor_limited   = is_limited(VISITOR_ID)
-visitor_used      = FREE_LIMIT - visitor_remaining
+# ── Step 5: Usage tracking (free users only) ──────────────────────────────────
+if not subscribed:
+    visitor_remaining = remaining(VISITOR_ID)
+    visitor_limited   = is_limited(VISITOR_ID)
+    visitor_used      = FREE_LIMIT - visitor_remaining
 
-
-# ── Usage indicator (Step 1 — persistent dots) ────────────────────────────────
-if not st.session_state.subscribed:
-    dots_html = ""
-    for i in range(FREE_LIMIT):
-        if i < visitor_used:
-            css = "used" if i < FREE_LIMIT - 1 else "warn"
-            dots_html += f'<div class="dot {css}"></div>'
-        else:
-            dots_html += '<div class="dot"></div>'
-
+    dots_html = "".join(
+        f'<div class="dot {"used" if i < visitor_used else ""}"></div>'
+        for i in range(FREE_LIMIT)
+    )
     label_color = "color:#E74C3C;" if visitor_remaining <= 1 else ""
     st.markdown(f"""
     <div class="usage-bar-wrap">
@@ -200,16 +234,25 @@ if not st.session_state.subscribed:
     </div>
     """, unsafe_allow_html=True)
 
-    # Warning on last question
     if visitor_remaining == 1:
         st.markdown("""
         <div class="warn-banner">
-            ⚠ &nbsp; This is your last free consultation. Subscribe for unlimited access.
+            ⚠ &nbsp; Last free consultation. Subscribe for unlimited access.
         </div>
         """, unsafe_allow_html=True)
+else:
+    # Step 6: Show active plan status for subscribers
+    st.markdown(f"""
+    <div class="plan-card">
+        <span style="font-size:0.78rem; color:rgba(250,250,247,0.6);">
+            CONSULTAMHANi — Monthly Plan
+        </span>
+        <span class="plan-active">● Active</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-# ── Chat history ──────────────────────────────────────────────────────────────
+# ── Chat history ───────────────────────────────────────────────────────────────
 if st.session_state.messages:
     msgs_html = '<div class="msg-wrap">'
     for msg in st.session_state.messages:
@@ -225,42 +268,39 @@ if st.session_state.messages:
     st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
 
 
-# ── Paywall (Step 3 & 4 — upgraded card) ─────────────────────────────────────
-if not st.session_state.subscribed and visitor_limited:
-    # Pull last topics from session messages for personalised paywall
+# ── Paywall (free users who hit limit) ────────────────────────────────────────
+if not subscribed and is_limited(VISITOR_ID):
     topics = [m["content"][:40] + "..." for m in st.session_state.messages if m["role"] == "user"]
     topics_str = " · ".join(topics[:3]) if topics else "stocks, markets, financial data"
 
     st.markdown(f"""
     <div class="paywall-card">
-        <div class="paywall-icon">✦</div>
         <div class="paywall-title">You've Found Your Edge</div>
         <div class="paywall-body">
             You explored: <em style="color:var(--gold-dim)">{topics_str}</em><br><br>
-            You've used your {FREE_LIMIT} complimentary consultations.
-            Unlock unlimited access to AMHANi's full financial intelligence suite.
+            Subscribe to {INTERFACE_TITLE} for unlimited real-time financial intelligence.
         </div>
         <div class="paywall-stats">
             <div class="paywall-stat">
-                <div class="paywall-stat-num">{visitor_used}</div>
-                <div class="paywall-stat-label">Questions Asked</div>
+                <div class="paywall-stat-num">{FREE_LIMIT}</div>
+                <div class="paywall-stat-label">Used</div>
             </div>
             <div class="paywall-stat">
                 <div class="paywall-stat-num">∞</div>
-                <div class="paywall-stat-label">With Subscription</div>
+                <div class="paywall-stat-label">With Pro</div>
             </div>
             <div class="paywall-stat">
                 <div class="paywall-stat-num">24/7</div>
-                <div class="paywall-stat-label">Always Available</div>
+                <div class="paywall-stat-label">Always On</div>
             </div>
         </div>
-        <div class="paywall-price">₦ 9,999</div>
+        <div class="paywall-price">₦ 29,999</div>
         <div class="paywall-period">per month &nbsp;·&nbsp; cancel anytime</div>
         <div class="paywall-perks">
             <div class="paywall-perk">Unlimited financial consultations</div>
             <div class="paywall-perk">Real-time stock price lookups</div>
             <div class="paywall-perk">Market research & news analysis</div>
-            <div class="paywall-perk">P/E ratio & financial metric calculators</div>
+            <div class="paywall-perk">P/E ratio & financial calculators</div>
             <div class="paywall-perk">Priority response speed</div>
         </div>
     </div>
@@ -268,11 +308,17 @@ if not st.session_state.subscribed and visitor_limited:
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("SUBSCRIBE TO CONSULTAMHANi", use_container_width=True):
-            st.markdown(
-                f'<meta http-equiv="refresh" content="0; url={STRIPE_LINK}">',
-                unsafe_allow_html=True,
-            )
+        if st.button("SUBSCRIBE TO CONSULTAMHANi", use_container_width=True, key="subscribe_btn"):
+            with st.spinner("Redirecting to payment..."):
+                try:
+                    pay_url = create_subscription_link(user_email, user.id)
+                    st.markdown(
+                        f'<meta http-equiv="refresh" content="0; url={pay_url}">',
+                        unsafe_allow_html=True,
+                    )
+                    st.info(f"If not redirected, [click here]({pay_url})")
+                except Exception as e:
+                    st.error(f"Payment error: {e}")
     st.stop()
 
 
@@ -305,18 +351,21 @@ if send and user_input.strip():
 
     st.session_state.messages.append({"role": "agent", "content": response})
 
-    # Increment persistent usage counter (Step 2)
-    increment_usage(VISITOR_ID)
+    # Only increment for free users
+    if not subscribed:
+        increment_usage(VISITOR_ID)
+
     st.session_state.session_q += 1
     st.rerun()
 
 
 # ── Welcome state ──────────────────────────────────────────────────────────────
 if not st.session_state.messages:
-    st.markdown("""
+    greeting = "Welcome back" if subscribed else "What would you like to explore?"
+    st.markdown(f"""
     <div style="text-align:center; padding:3rem 1rem; color:rgba(250,250,247,0.3);">
         <div style="font-family:'Cormorant Garamond',serif; font-size:1.3rem; margin-bottom:0.75rem; color:rgba(201,168,76,0.5);">
-            What would you like to explore?
+            {greeting}
         </div>
         <div style="font-size:0.78rem; line-height:2.2; letter-spacing:0.04em;">
             "Get me the stock price of TSLA"<br>

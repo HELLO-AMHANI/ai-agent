@@ -1,8 +1,6 @@
-# admin.py — AMHANi | Phase 3: Admin Analytics View
-# Run with: streamlit run admin.py
-# Protect this with a password before deploying publicly
-
+# admin.py — AMHANi | Phase 4: Admin Dashboard with Subscriber Metrics
 import os
+import time
 import streamlit as st
 from dotenv import load_dotenv
 from limiter import get_all_stats, reset_ip, FREE_LIMIT
@@ -17,9 +15,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Admin password gate ───────────────────────────────────────────────────────
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "amhani-admin-2024")
+ADMIN_PASSWORD   = os.getenv("ADMIN_PASSWORD", "amhani-admin-2024")
+PAYSTACK_SECRET  = os.getenv("PAYSTACK_SECRET_KEY", "")
+PLAN_CODE        = os.getenv("PAYSTACK_PLAN_CODE", "")
 
+# ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Montserrat:wght@300;400;500;600&display=swap');
@@ -29,14 +29,17 @@ html, body, [class*="css"] { font-family:'Montserrat',sans-serif; background:#0A
 .admin-header { border-bottom:1px solid rgba(201,168,76,0.25); padding-bottom:1rem; margin-bottom:2rem; }
 .admin-title { font-family:'Cormorant Garamond',serif; font-size:2rem; font-weight:700; color:#C9A84C; letter-spacing:0.15em; }
 .admin-sub { font-size:0.65rem; letter-spacing:0.3em; text-transform:uppercase; color:#8B6914; margin-top:0.2rem; }
+.section-label { font-size:0.62rem; letter-spacing:0.28em; text-transform:uppercase; color:#8B6914; margin-bottom:1rem; margin-top:1.5rem; }
 .metric-card { background:#1A1A14; border:1px solid rgba(201,168,76,0.2); border-radius:8px; padding:1.5rem; text-align:center; }
 .metric-num { font-family:'Cormorant Garamond',serif; font-size:2.5rem; font-weight:700; color:#E8C97A; }
-.metric-label { font-size:0.65rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(250,250,247,0.4); margin-top:0.3rem; }
+.metric-label { font-size:0.62rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(250,250,247,0.4); margin-top:0.3rem; }
+.metric-card.green { border-color:rgba(39,174,96,0.3); }
+.metric-card.green .metric-num { color:#2ECC71; }
 .stTextInput>div>div>input { background:#1A1A14 !important; border:1px solid rgba(201,168,76,0.25) !important; border-radius:6px !important; color:#FAFAF7 !important; font-family:'Montserrat',sans-serif !important; }
-.stButton>button { background:linear-gradient(135deg,#E8C97A,#C9A84C) !important; color:#0A0A08 !important; border:none !important; border-radius:6px !important; font-weight:600 !important; font-size:0.75rem !important; letter-spacing:0.12em !important; text-transform:uppercase !important; }
-.visitor-row { background:#111109; border:1px solid rgba(201,168,76,0.1); border-radius:6px; padding:0.6rem 1rem; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; }
+.stButton>button { background:linear-gradient(135deg,#E8C97A,#C9A84C) !important; color:#0A0A08 !important; border:none !important; border-radius:6px !important; font-weight:600 !important; font-size:0.72rem !important; letter-spacing:0.12em !important; text-transform:uppercase !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ── Password gate ─────────────────────────────────────────────────────────────
 if "admin_auth" not in st.session_state:
@@ -45,11 +48,10 @@ if "admin_auth" not in st.session_state:
 if not st.session_state.admin_auth:
     st.markdown("""
     <div style="max-width:360px; margin:8rem auto; text-align:center;">
-        <div style="font-family:'Cormorant Garamond',serif; font-size:2rem; color:#C9A84C; letter-spacing:0.15em; margin-bottom:0.5rem;">AMHANi</div>
-        <div style="font-size:0.62rem; letter-spacing:0.3em; color:#8B6914; text-transform:uppercase; margin-bottom:2rem;">Admin Access</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:2rem; color:#C9A84C; letter-spacing:0.15em; margin-bottom:0.4rem;">AMHANi</div>
+        <div style="font-size:0.6rem; letter-spacing:0.3em; color:#8B6914; text-transform:uppercase; margin-bottom:2rem;">Admin Access</div>
     </div>
     """, unsafe_allow_html=True)
-
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         pwd = st.text_input("Password", type="password", key="admin_pwd")
@@ -61,74 +63,134 @@ if not st.session_state.admin_auth:
                 st.error("Incorrect password.")
     st.stop()
 
-# ── Admin dashboard ───────────────────────────────────────────────────────────
+
+# ── Dashboard ──────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="admin-header">
     <div class="admin-title">AMHANi Admin</div>
-    <div class="admin-sub">CONSULTAMHANi · Analytics Dashboard</div>
+    <div class="admin-sub">CONSULTAMHANi · Analytics & Subscriber Dashboard</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Load stats
-stats = get_all_stats()
 
-# ── Metric cards (Step 5) ─────────────────────────────────────────────────────
-col1, col2, col3, col4, col5 = st.columns(5)
+# ── Step 7: Pull subscriber count from Supabase ───────────────────────────────
+def get_subscriber_count() -> dict:
+    try:
+        from supabase import create_client
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            return {"total": 0, "active": 0, "mrr": 0}
+        sb = create_client(url, key)
+        result = sb.table("subscribers").select("status").execute()
+        rows   = result.data or []
+        active = sum(1 for r in rows if r.get("status") == "active")
+        return {
+            "total":  len(rows),
+            "active": active,
+            "mrr":    active * 9999,
+        }
+    except Exception:
+        return {"total": 0, "active": 0, "mrr": 0}
 
-with col1:
+
+stats      = get_all_stats()
+sub_data   = get_subscriber_count()
+
+# ── Section 1: Revenue & Subscribers ──────────────────────────────────────────
+st.markdown('<div class="section-label">Revenue & Subscribers</div>', unsafe_allow_html=True)
+
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.markdown(f"""
+    <div class="metric-card green">
+        <div class="metric-num">{sub_data['active']}</div>
+        <div class="metric-label">Active Subscribers</div>
+    </div>""", unsafe_allow_html=True)
+with c2:
+    st.markdown(f"""
+    <div class="metric-card green">
+        <div class="metric-num">₦{sub_data['mrr']:,}</div>
+        <div class="metric-label">Monthly Revenue (MRR)</div>
+    </div>""", unsafe_allow_html=True)
+with c3:
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-num">{sub_data['total']}</div>
+        <div class="metric-label">Total Signups</div>
+    </div>""", unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Section 2: Usage & Funnel ──────────────────────────────────────────────────
+st.markdown('<div class="section-label">Usage & Conversion Funnel</div>', unsafe_allow_html=True)
+
+c4, c5, c6, c7 = st.columns(4)
+with c4:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-num">{stats['total_visitors']}</div>
         <div class="metric-label">Total Visitors</div>
     </div>""", unsafe_allow_html=True)
-
-with col2:
+with c5:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-num">{stats['total_questions']}</div>
         <div class="metric-label">Questions Asked</div>
     </div>""", unsafe_allow_html=True)
-
-with col3:
+with c6:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-num">{stats['hit_paywall']}</div>
         <div class="metric-label">Hit Paywall</div>
     </div>""", unsafe_allow_html=True)
-
-with col4:
+with c7:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-num">{stats['conversion_rate']}</div>
         <div class="metric-label">Paywall Rate</div>
     </div>""", unsafe_allow_html=True)
 
-with col5:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-num">{stats['active_today']}</div>
-        <div class="metric-label">Active Today</div>
-    </div>""", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Section 3: Subscriber list from Supabase ──────────────────────────────────
+st.markdown('<div class="section-label">Subscriber List</div>', unsafe_allow_html=True)
+
+try:
+    from supabase import create_client
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_KEY")
+    if url and key:
+        sb      = create_client(url, key)
+        result  = sb.table("subscribers").select("*").order("created_at", desc=True).execute()
+        subs    = result.data or []
+        if subs:
+            for sub in subs:
+                status     = sub.get("status", "unknown")
+                email      = sub.get("email", "N/A")
+                created    = sub.get("created_at", "")[:10]
+                status_col = "#2ECC71" if status == "active" else "#E74C3C"
+                col_a, col_b, col_c = st.columns([3, 2, 2])
+                with col_a:
+                    st.markdown(f"<span style='font-size:0.78rem; color:rgba(250,250,247,0.7);'>{email}</span>", unsafe_allow_html=True)
+                with col_b:
+                    st.markdown(f"<span style='font-size:0.72rem; color:{status_col}; text-transform:uppercase; letter-spacing:0.1em;'>● {status}</span>", unsafe_allow_html=True)
+                with col_c:
+                    st.markdown(f"<span style='font-size:0.72rem; color:rgba(250,250,247,0.35);'>Joined {created}</span>", unsafe_allow_html=True)
+        else:
+            st.markdown("<span style='font-size:0.8rem; color:rgba(250,250,247,0.3);'>No subscribers yet. Share #CONSULTAMHANi.</span>", unsafe_allow_html=True)
+except Exception as e:
+    st.warning(f"Could not load subscriber list: {e}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Visitor breakdown ─────────────────────────────────────────────────────────
-st.markdown("""
-<div style="font-size:0.65rem; letter-spacing:0.25em; text-transform:uppercase; color:#8B6914; margin-bottom:1rem;">
-    Visitor Log
-</div>
-""", unsafe_allow_html=True)
+# ── Section 4: Visitor log ────────────────────────────────────────────────────
+st.markdown('<div class="section-label">Free Visitor Log</div>', unsafe_allow_html=True)
 
 raw = stats.get("raw", {})
-
 if not raw:
-    st.markdown("""
-    <div style="text-align:center; padding:2rem; color:rgba(250,250,247,0.3); font-size:0.82rem;">
-        No visitors yet. Share #CONSULTAMHANi to get traffic.
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<span style='font-size:0.8rem; color:rgba(250,250,247,0.3);'>No visitor data yet.</span>", unsafe_allow_html=True)
 else:
-    import time
     for visitor_id, record in sorted(raw.items(), key=lambda x: x[1].get("last_seen", 0), reverse=True):
         count     = record.get("count", 0)
         last_seen = record.get("last_seen", 0)
@@ -136,25 +198,23 @@ else:
         time_str  = time.strftime("%Y-%m-%d %H:%M", time.localtime(last_seen)) if last_seen else "N/A"
         status    = "🔴 Hit Paywall" if hit_wall else f"🟡 {count}/{FREE_LIMIT} used"
         short_id  = visitor_id[:16] + "..."
-
         col_a, col_b, col_c, col_d = st.columns([3, 2, 2, 1])
         with col_a:
-            st.markdown(f"<span style='font-size:0.75rem; color:rgba(250,250,247,0.5); font-family:monospace;'>{short_id}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:0.72rem; color:rgba(250,250,247,0.4); font-family:monospace;'>{short_id}</span>", unsafe_allow_html=True)
         with col_b:
-            st.markdown(f"<span style='font-size:0.75rem; color:rgba(250,250,247,0.6);'>{time_str}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:0.72rem; color:rgba(250,250,247,0.5);'>{time_str}</span>", unsafe_allow_html=True)
         with col_c:
-            st.markdown(f"<span style='font-size:0.75rem;'>{status}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:0.72rem;'>{status}</span>", unsafe_allow_html=True)
         with col_d:
             if st.button("Reset", key=f"reset_{visitor_id}"):
                 reset_ip(visitor_id)
-                st.success("Reset.")
                 st.rerun()
 
-# ── Refresh & logout ──────────────────────────────────────────────────────────
+# ── Controls ──────────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
-col_r, col_l, col_empty = st.columns([1, 1, 4])
+col_r, col_l, _ = st.columns([1, 1, 4])
 with col_r:
-    if st.button("REFRESH DATA", use_container_width=True):
+    if st.button("REFRESH", use_container_width=True):
         st.rerun()
 with col_l:
     if st.button("LOG OUT", use_container_width=True):
@@ -163,7 +223,7 @@ with col_l:
 
 st.markdown("""
 <div style="text-align:center; padding:2rem 0 0.5rem; border-top:1px solid rgba(201,168,76,0.1); margin-top:2rem;">
-    <span style="font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(201,168,76,0.3);">
+    <span style="font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(201,168,76,0.25);">
         AMHANi Admin &nbsp;·&nbsp; Internal Use Only
     </span>
 </div>
