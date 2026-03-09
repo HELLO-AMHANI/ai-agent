@@ -31,8 +31,28 @@ def get_prompt(agent_name: str):
     ])
 
 
+from tools import (
+    get_stock_price,
+    calculate_pe_ratio,
+    get_market_news,
+    get_company_overview,
+    get_exchange_rate,
+    convert_currency,
+    get_gdp_data,
+    get_inflation_data,
+)
+
 def build_tools():
-    tools = [get_stock_price, calculate_pe_ratio]
+    tools = [
+        get_stock_price,
+        calculate_pe_ratio,
+        get_market_news,
+        get_company_overview,
+        get_exchange_rate,
+        convert_currency,
+        get_gdp_data,
+        get_inflation_data,
+    ]
 
     serp_key = os.getenv("SERPAPI_API_KEY")
     if serp_key:
