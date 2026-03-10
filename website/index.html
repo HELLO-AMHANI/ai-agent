@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMHANi ENTERPRISE — Financial Consulting & Advisory</title>
+  <meta name="description" content="AMHANi Enterprise is a data-driven financial consulting and advisory firm. Expert financial planning, investment advisory, business development, and AI-powered research via CONSULTAMHANi." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400;1,600&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --gold:#C9A84C;--gold-light:#E8C97A;--gold-dim:#8B6B1F;
+      --gold-glow:rgba(201,168,76,0.12);--gold-border:rgba(201,168,76,0.22);
+      --black:#080806;--black-2:#0E0E0B;--black-3:#161612;--black-4:#1E1E18;
+      --white:#F8F6F0;--white-dim:rgba(248,246,240,0.55);
+      --white-muted:rgba(248,246,240,0.3);--white-ghost:rgba(248,246,240,0.08);
+      --font-display:'Playfair Display',Georgia,serif;
+      --font-body:'DM Sans',sans-serif;--font-mono:'DM Mono',monospace;
+      --ease:cubic-bezier(0.16,1,0.3,1);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html{scroll-behavior:smooth;}
+    body{background:var(--black);color:var(--white);font-family:var(--font-body);font-weight:300;line-height:1.7;overflow-x:hidden;cursor:none;}
+    .cursor{position:fixed;width:8px;height:8px;background:var(--gold);border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:width .3s var(--ease),height .3s var(--ease);}
+    .cursor-ring{position:fixed;width:36px;height:36px;border:1px solid rgba(201,168,76,0.5);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:width .3s var(--ease),height .3s var(--ease);}
+    body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.04'/%3E%3C/svg%3E");pointer-events:none;z-index:1;opacity:.35;}
+
+    /* NAV */
+    nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:1.4rem 4rem;transition:background .4s,padding .3s;}
+    nav.scrolled{background:rgba(8,8,6,.9);backdrop-filter:blur(20px);padding:1rem 4rem;border-bottom:1px solid var(--gold-border);}
+    .nav-logo{font-family:var(--font-display);font-size:1.35rem;font-weight:700;letter-spacing:.12em;background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-decoration:none;}
+    .nav-logo span{font-size:.52rem;letter-spacing:.3em;text-transform:uppercase;display:block;color:var(--gold-dim);-webkit-text-fill-color:var(--gold-dim);margin-top:-2px;}
+    .nav-links{display:flex;gap:2.5rem;list-style:none;align-items:center;}
+    .nav-links a{font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;color:var(--white-dim);text-decoration:none;font-weight:400;transition:color .2s;position:relative;}
+    .nav-links a::after{content:'';position:absolute;bottom:-3px;left:0;width:0;height:1px;background:var(--gold);transition:width .3s var(--ease);}
+    .nav-links a:hover{color:var(--gold);}
+    .nav-links a:hover::after{width:100%;}
+    .nav-cta{background:transparent!important;border:1px solid var(--gold-border)!important;color:var(--gold)!important;padding:.45rem 1.2rem!important;border-radius:3px;transition:background .3s!important;}
+    .nav-cta:hover{background:var(--gold-glow)!important;border-color:var(--gold)!important;}
+    .nav-cta::after{display:none!important;}
+    .nav-toggle{display:none;flex-direction:column;gap:5px;cursor:pointer;padding:4px;z-index:110;}
+    .nav-toggle span{display:block;width:24px;height:1px;background:var(--gold);transition:all .3s;}
+
+    /* HERO */
+    #hero{min-height:100vh;display:flex;align-items:center;position:relative;padding:0 4rem;overflow:hidden;}
+    .hero-geo{position:absolute;inset:0;pointer-events:none;}
+    .hero-geo::before{content:'';position:absolute;top:-20%;right:-10%;width:700px;height:700px;border:1px solid var(--gold-border);border-radius:50%;animation:rotateGeo 40s linear infinite;}
+    .hero-geo::after{content:'';position:absolute;top:5%;right:5%;width:400px;height:400px;border:1px solid rgba(201,168,76,.08);border-radius:50%;animation:rotateGeo 25s linear infinite reverse;}
+    .hero-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(201,168,76,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(201,168,76,.04) 1px,transparent 1px);background-size:60px 60px;mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black,transparent);}
+    .hero-glow{position:absolute;top:30%;right:15%;width:500px;height:500px;background:radial-gradient(circle,rgba(201,168,76,.06) 0%,transparent 70%);pointer-events:none;}
+    @keyframes rotateGeo{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+    .hero-content{position:relative;z-index:2;max-width:720px;}
+    .hero-label{font-family:var(--font-mono);font-size:.65rem;letter-spacing:.35em;text-transform:uppercase;color:var(--gold);margin-bottom:1.8rem;display:flex;align-items:center;gap:.8rem;opacity:0;animation:fadeUp .8s var(--ease) .2s forwards;}
+    .hero-label::before{content:'';display:inline-block;width:30px;height:1px;background:var(--gold);}
+    .hero-headline{font-family:var(--font-display);font-size:clamp(3rem,6vw,5.5rem);font-weight:900;line-height:1.05;letter-spacing:-.02em;margin-bottom:1.5rem;opacity:0;animation:fadeUp .9s var(--ease) .35s forwards;}
+    .hero-headline .gold-word{background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 60%,var(--gold-dim) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;display:block;}
+    .hero-sub{font-size:1.05rem;color:var(--white-dim);max-width:520px;line-height:1.8;margin-bottom:2.5rem;opacity:0;animation:fadeUp .9s var(--ease) .5s forwards;}
+    .hero-actions{display:flex;gap:1rem;flex-wrap:wrap;opacity:0;animation:fadeUp .9s var(--ease) .65s forwards;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .scroll-ind{position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:.5rem;opacity:0;animation:fadeIn 1s var(--ease) 1.2s forwards;}
+    .scroll-ind span{font-family:var(--font-mono);font-size:.55rem;letter-spacing:.3em;text-transform:uppercase;color:var(--white-muted);}
+    .scroll-line{width:1px;height:40px;background:linear-gradient(to bottom,var(--gold),transparent);animation:scrollPulse 2s ease-in-out infinite;}
+    @keyframes scrollPulse{0%,100%{opacity:.3}50%{opacity:1}}
+
+    /* BUTTONS */
+    .btn-primary{display:inline-flex;align-items:center;gap:.6rem;background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 100%);color:var(--black);font-family:var(--font-body);font-size:.72rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;text-decoration:none;padding:1rem 2.2rem;border-radius:3px;border:none;cursor:none;transition:opacity .25s,transform .25s var(--ease),box-shadow .25s;}
+    .btn-primary:hover{opacity:.9;transform:translateY(-2px);box-shadow:0 8px 30px rgba(201,168,76,.25);}
+    .btn-secondary{display:inline-flex;align-items:center;gap:.6rem;background:transparent;color:var(--white-dim);font-family:var(--font-body);font-size:.72rem;font-weight:400;letter-spacing:.18em;text-transform:uppercase;text-decoration:none;padding:1rem 2rem;border-radius:3px;border:1px solid var(--gold-border);cursor:none;transition:color .25s,border-color .25s,background .25s,transform .25s var(--ease);}
+    .btn-secondary:hover{color:var(--gold);border-color:var(--gold);background:var(--gold-glow);transform:translateY(-2px);}
+
+    /* SECTION BASE */
+    section{position:relative;z-index:2;}
+    .section-inner{max-width:1200px;margin:0 auto;padding:7rem 4rem;}
+    .section-label{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.38em;text-transform:uppercase;color:var(--gold);margin-bottom:1rem;display:flex;align-items:center;gap:.8rem;}
+    .section-label::before{content:'';display:inline-block;width:20px;height:1px;background:var(--gold);}
+    .section-title{font-family:var(--font-display);font-size:clamp(2.2rem,4vw,3.5rem);font-weight:700;line-height:1.15;letter-spacing:-.01em;margin-bottom:1.2rem;}
+    .section-title .accent{background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+    .section-body{font-size:1rem;color:var(--white-dim);max-width:580px;line-height:1.85;}
+    .gold-rule{width:60px;height:1px;background:linear-gradient(to right,var(--gold),transparent);margin:2rem 0;}
+
+    /* STATS */
+    #stats{background:var(--black-2);border-top:1px solid var(--gold-border);border-bottom:1px solid var(--gold-border);}
+    .stats-inner{max-width:1200px;margin:0 auto;padding:3rem 4rem;display:grid;grid-template-columns:repeat(4,1fr);gap:2rem;}
+    .stat-item{text-align:center;padding:1rem;border-right:1px solid var(--gold-border);}
+    .stat-item:last-child{border-right:none;}
+    .stat-num{font-family:var(--font-display);font-size:2.8rem;font-weight:700;line-height:1;background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:.4rem;}
+    .stat-label{font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;color:var(--white-muted);}
+
+    /* SERVICES */
+    #services{background:var(--black-2);}
+    .services-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5px;margin-top:4rem;background:var(--gold-border);border:1px solid var(--gold-border);}
+    .service-card{background:var(--black-2);padding:2.5rem 2rem;position:relative;overflow:hidden;transition:background .3s;}
+    .service-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(to right,var(--gold),transparent);transform:scaleX(0);transform-origin:left;transition:transform .4s var(--ease);}
+    .service-card:hover{background:var(--black-3);}
+    .service-card:hover::before{transform:scaleX(1);}
+    .service-icon{font-size:1.6rem;margin-bottom:1.2rem;display:block;}
+    .service-num{font-family:var(--font-mono);font-size:.58rem;letter-spacing:.3em;color:var(--gold-dim);margin-bottom:.8rem;}
+    .service-name{font-family:var(--font-display);font-size:1.25rem;font-weight:600;margin-bottom:.8rem;line-height:1.3;}
+    .service-desc{font-size:.88rem;color:var(--white-dim);line-height:1.75;}
+
+    /* ABOUT */
+    #about{background:var(--black);}
+    .about-layout{display:grid;grid-template-columns:1fr 1fr;gap:6rem;align-items:center;margin-top:1rem;}
+    .about-visual{position:relative;height:480px;}
+    .about-frame{position:absolute;inset:0;border:1px solid var(--gold-border);border-radius:2px;}
+    .about-frame-2{position:absolute;top:20px;left:20px;right:-20px;bottom:-20px;border:1px solid rgba(201,168,76,.1);border-radius:2px;}
+    .about-inner-box{position:absolute;inset:30px;background:var(--black-3);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:2rem;}
+    .about-monogram{font-family:var(--font-display);font-size:5rem;font-weight:900;line-height:1;background:linear-gradient(135deg,var(--gold-light),var(--gold),var(--gold-dim));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:1rem;letter-spacing:-.03em;}
+    .about-est{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.4em;text-transform:uppercase;color:var(--gold-dim);margin-bottom:1.5rem;}
+    .about-pillars{display:flex;gap:1.5rem;flex-wrap:wrap;justify-content:center;}
+    .pillar{font-size:.65rem;letter-spacing:.15em;text-transform:uppercase;color:var(--white-muted);padding:.3rem .7rem;border:1px solid var(--gold-border);border-radius:2px;}
+    .about-fact{display:flex;align-items:flex-start;gap:1rem;padding:1rem 0;border-bottom:1px solid var(--white-ghost);}
+    .about-fact:first-of-type{border-top:1px solid var(--white-ghost);}
+    .fact-icon{color:var(--gold);font-size:1rem;flex-shrink:0;margin-top:2px;}
+    .fact-text{font-size:.88rem;color:var(--white-dim);line-height:1.6;}
+    .fact-text strong{color:var(--white);font-weight:500;}
+
+    /* MISSION */
+    #mission{background:var(--black-3);border-top:1px solid var(--gold-border);border-bottom:1px solid var(--gold-border);}
+    .mission-inner{max-width:1200px;margin:0 auto;padding:7rem 4rem;text-align:center;}
+    .mission-quote{font-family:var(--font-display);font-size:clamp(1.6rem,3.5vw,2.8rem);font-weight:400;font-style:italic;line-height:1.45;color:var(--white);max-width:860px;margin:0 auto 2.5rem;position:relative;}
+    .mission-quote::before{content:'\201C';position:absolute;top:-1.5rem;left:-1rem;font-size:6rem;color:var(--gold-border);font-family:var(--font-display);line-height:1;pointer-events:none;}
+    .mission-quote .highlight{background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-style:normal;font-weight:600;}
+    .mission-pillars{display:flex;justify-content:center;gap:3rem;flex-wrap:wrap;margin-top:3.5rem;}
+    .mission-pillar{display:flex;flex-direction:column;align-items:center;gap:.5rem;}
+    .mission-pillar-icon{width:50px;height:50px;border:1px solid var(--gold-border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.2rem;background:var(--gold-glow);transition:border-color .3s,background .3s;}
+    .mission-pillar:hover .mission-pillar-icon{border-color:var(--gold);background:rgba(201,168,76,.18);}
+    .mission-pillar-name{font-size:.65rem;letter-spacing:.22em;text-transform:uppercase;color:var(--gold-dim);margin-top:.3rem;}
+
+    /* TESTIMONIALS */
+    #testimonials{background:var(--black);}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;margin-top:3.5rem;}
+    .testimonial-card{background:var(--black-3);border:1px solid var(--gold-border);border-radius:4px;padding:2rem;transition:border-color .3s,transform .3s var(--ease);}
+    .testimonial-card:hover{border-color:rgba(201,168,76,.5);transform:translateY(-4px);}
+    .testimonial-stars{color:var(--gold);font-size:.8rem;letter-spacing:3px;margin-bottom:1rem;}
+    .testimonial-text{font-size:.9rem;color:var(--white-dim);line-height:1.8;font-style:italic;margin-bottom:1.5rem;}
+    .testimonial-author{display:flex;align-items:center;gap:.8rem;}
+    .author-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--gold-dim),var(--gold));display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:.9rem;font-weight:700;color:var(--black);flex-shrink:0;}
+    .author-name{font-size:.82rem;font-weight:500;color:var(--white);}
+    .author-role{font-size:.7rem;color:var(--white-muted);font-family:var(--font-mono);letter-spacing:.08em;}
+
+    /* CONSULT CTA */
+    #consult{background:var(--black-2);border-top:1px solid var(--gold-border);}
+    .consult-inner{max-width:1200px;margin:0 auto;padding:7rem 4rem;display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center;}
+    .consult-panel{background:var(--black-4);border:1px solid var(--gold-border);border-radius:6px;padding:2.5rem;position:relative;overflow:hidden;}
+    .consult-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(to right,var(--gold-light),var(--gold),transparent);}
+    .consult-panel-label{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.35em;text-transform:uppercase;color:var(--gold);margin-bottom:1.2rem;}
+    .consult-panel-title{font-family:var(--font-display);font-size:1.8rem;font-weight:700;margin-bottom:.8rem;background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+    .consult-panel-desc{font-size:.85rem;color:var(--white-dim);line-height:1.75;margin-bottom:1.8rem;}
+    .consult-feature{display:flex;align-items:center;gap:.7rem;padding:.4rem 0;font-size:.82rem;color:var(--white-dim);}
+    .consult-feature::before{content:'✦';color:var(--gold);font-size:.6rem;flex-shrink:0;}
+    .free-badge{display:inline-block;background:var(--gold-glow);border:1px solid var(--gold-border);color:var(--gold);font-family:var(--font-mono);font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;padding:.25rem .7rem;border-radius:2px;margin-bottom:1.2rem;}
+
+    /* CONTACT */
+    #contact{background:var(--black);}
+    .contact-layout{display:grid;grid-template-columns:1fr 1fr;gap:5rem;margin-top:3rem;}
+    .contact-info-item{display:flex;align-items:flex-start;gap:1.2rem;padding:1.5rem 0;border-bottom:1px solid var(--white-ghost);}
+    .contact-icon{width:40px;height:40px;background:var(--gold-glow);border:1px solid var(--gold-border);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;transition:background .3s,border-color .3s;}
+    .contact-info-item:hover .contact-icon{background:rgba(201,168,76,.2);border-color:var(--gold);}
+    .contact-detail-label{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.25em;text-transform:uppercase;color:var(--gold-dim);margin-bottom:.3rem;}
+    .contact-detail-value{font-size:.92rem;color:var(--white);}
+    .contact-detail-value a{color:var(--white);text-decoration:none;transition:color .2s;}
+    .contact-detail-value a:hover{color:var(--gold);}
+    .contact-form{display:flex;flex-direction:column;gap:1.2rem;}
+    .form-group{display:flex;flex-direction:column;gap:.4rem;}
+    .form-label{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.25em;text-transform:uppercase;color:var(--gold-dim);}
+    .form-input,.form-textarea{background:var(--black-3);border:1px solid var(--gold-border);border-radius:3px;padding:.9rem 1.1rem;color:var(--white);font-family:var(--font-body);font-size:.9rem;font-weight:300;outline:none;transition:border-color .25s,background .25s;cursor:none;}
+    .form-input::placeholder,.form-textarea::placeholder{color:var(--white-muted);}
+    .form-input:focus,.form-textarea:focus{border-color:var(--gold);background:var(--black-4);}
+    .form-textarea{resize:vertical;min-height:120px;}
+
+    /* FOOTER */
+    footer{background:var(--black-2);border-top:1px solid var(--gold-border);position:relative;z-index:2;}
+    .footer-inner{max-width:1200px;margin:0 auto;padding:4rem 4rem 2.5rem;}
+    .footer-top{display:grid;grid-template-columns:2fr 1fr 1fr;gap:4rem;padding-bottom:3rem;border-bottom:1px solid var(--white-ghost);margin-bottom:2rem;}
+    .footer-brand-name{font-family:var(--font-display);font-size:1.5rem;font-weight:700;letter-spacing:.1em;background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:.3rem;}
+    .footer-brand-tag{font-size:.62rem;letter-spacing:.3em;text-transform:uppercase;color:var(--gold-dim);margin-bottom:1rem;}
+    .footer-brand-desc{font-size:.85rem;color:var(--white-muted);line-height:1.75;max-width:320px;}
+    .footer-col-title{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.28em;text-transform:uppercase;color:var(--gold);margin-bottom:1.2rem;}
+    .footer-links{list-style:none;display:flex;flex-direction:column;gap:.7rem;}
+    .footer-links a{font-size:.85rem;color:var(--white-muted);text-decoration:none;transition:color .2s;}
+    .footer-links a:hover{color:var(--gold);}
+    .footer-bottom{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;}
+    .footer-copy{font-size:.72rem;color:var(--white-muted);letter-spacing:.05em;}
+    .footer-hashtag{font-family:var(--font-mono);font-size:.68rem;letter-spacing:.2em;color:var(--gold-dim);}
+
+    /* REVEAL ANIMATIONS */
+    .reveal{opacity:0;transform:translateY(32px);transition:opacity .8s var(--ease),transform .8s var(--ease);}
+    .reveal.visible{opacity:1;transform:translateY(0);}
+    .reveal-delay-1{transition-delay:.1s;}
+    .reveal-delay-2{transition-delay:.2s;}
+    .reveal-delay-3{transition-delay:.3s;}
+    .reveal-delay-4{transition-delay:.4s;}
+
+    /* RESPONSIVE */
+    @media(max-width:1024px){
+      .services-grid{grid-template-columns:repeat(2,1fr);}
+      .testimonials-grid{grid-template-columns:repeat(2,1fr);}
+      .stats-inner{grid-template-columns:repeat(2,1fr);}
+    }
+    @media(max-width:768px){
+      nav{padding:1.2rem 1.5rem;}
+      nav.scrolled{padding:1rem 1.5rem;}
+      .nav-links{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(8,8,6,.97);flex-direction:column;justify-content:center;align-items:center;gap:2.5rem;z-index:99;}
+      .nav-links.open{display:flex;}
+      .nav-links a{font-size:1.2rem;}
+      .nav-toggle{display:flex;}
+      #hero{padding:0 1.5rem;}
+      .section-inner{padding:5rem 1.5rem;}
+      .mission-inner,.consult-inner{padding:5rem 1.5rem;}
+      .consult-inner{grid-template-columns:1fr;gap:2.5rem;}
+      .about-layout{grid-template-columns:1fr;}
+      .about-visual{display:none;}
+      .contact-layout{grid-template-columns:1fr;gap:2.5rem;}
+      .services-grid{grid-template-columns:1fr;}
+      .testimonials-grid{grid-template-columns:1fr;}
+      .stats-inner{grid-template-columns:repeat(2,1fr);padding:2.5rem 1.5rem;}
+      .stat-item{border-right:none;border-bottom:1px solid var(--gold-border);}
+      .stat-item:last-child{border-bottom:none;}
+      .footer-top{grid-template-columns:1fr;gap:2.5rem;}
+      .footer-inner{padding:3rem 1.5rem 2rem;}
+      .hero-headline{font-size:2.8rem;}
+      body{cursor:auto;}
+      .cursor,.cursor-ring{display:none;}
+    }
+  </style>
+</head>
+<body>
+  <div class="cursor" id="cursor"></div>
+  <div class="cursor-ring" id="cursorRing"></div>
+
+  <nav id="navbar">
+    <a href="#hero" class="nav-logo">AMHANi<span>Enterprise</span></a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#services">Services</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#mission">Mission</a></li>
+      <li><a href="#testimonials">Testimonials</a></li>
+      <li><a href="#contact">Contact</a></li>
+      <li><a href="http://localhost:8501" target="_blank" class="nav-cta">CONSULTAMHANi</a></li>
+    </ul>
+    <div class="nav-toggle" id="navToggle"><span></span><span></span><span></span></div>
+  </nav>
+
+  <!-- HERO -->
+  <section id="hero">
+    <div class="hero-geo"></div>
+    <div class="hero-grid"></div>
+    <div class="hero-glow"></div>
+    <div class="hero-content">
+      <div class="hero-label">AMHANi Enterprise · Financial Consulting & Advisory</div>
+      <h1 class="hero-headline">
+        Financial Intelligence
+        <span class="gold-word">Built On Facts,</span>
+        Not Rule of Thumb.
+      </h1>
+      <p class="hero-sub">A data-driven financial consulting and advisory firm offering expert guidance in financial planning, investment advisory, business development, and AI-powered research — so you never have to guess again.</p>
+      <div class="hero-actions">
+        <a href="http://localhost:8501" target="_blank" class="btn-primary">Try CONSULTAMHANi ✦</a>
+        <a href="#services" class="btn-secondary">Our Services →</a>
+      </div>
+    </div>
+    <div class="scroll-ind"><span>Scroll</span><div class="scroll-line"></div></div>
+  </section>
+
+  <!-- STATS -->
+  <section id="stats">
+    <div class="stats-inner">
+      <div class="stat-item reveal"><div class="stat-num">5+</div><div class="stat-label">Services Offered</div></div>
+      <div class="stat-item reveal reveal-delay-1"><div class="stat-num">Data</div><div class="stat-label">Driven Approach</div></div>
+      <div class="stat-item reveal reveal-delay-2"><div class="stat-num">24/7</div><div class="stat-label">AI Agent Access</div></div>
+      <div class="stat-item reveal reveal-delay-3"><div class="stat-num">100%</div><div class="stat-label">Transparent</div></div>
+    </div>
+  </section>
+
+  <!-- SERVICES -->
+  <section id="services">
+    <div class="section-inner">
+      <div class="section-label reveal">What We Offer</div>
+      <h2 class="section-title reveal reveal-delay-1">Expert Services <span class="accent">Tailored</span><br>To Your Financial Goals</h2>
+      <div class="gold-rule reveal reveal-delay-2"></div>
+      <div class="services-grid">
+        <div class="service-card reveal"><span class="service-icon">📊</span><div class="service-num">01</div><div class="service-name">Financial Planning Consultancy</div><p class="service-desc">Personalised, fact-based financial plans built around your goals, income, and future. We help you build wealth systematically — not by guesswork.</p></div>
+        <div class="service-card reveal reveal-delay-1"><span class="service-icon">📈</span><div class="service-num">02</div><div class="service-name">Investment Advisory Services</div><p class="service-desc">Data-driven investment guidance tailored to your risk appetite. We analyse markets, evaluate options, and give you clarity before you commit capital.</p></div>
+        <div class="service-card reveal reveal-delay-2"><span class="service-icon">🏢</span><div class="service-num">03</div><div class="service-name">Business Development</div><p class="service-desc">Strategic advisory for businesses looking to grow, pivot, or enter new markets. From financial modelling to operational structure — we help you scale right.</p></div>
+        <div class="service-card reveal reveal-delay-3"><span class="service-icon">🤖</span><div class="service-num">04</div><div class="service-name">AI Financial Research Agent</div><p class="service-desc">CONSULTAMHANi — your 24/7 AI-powered financial assistant. Real-time stock data, market research, financial metrics, and analysis at your fingertips.</p></div>
+        <div class="service-card reveal reveal-delay-1"><span class="service-icon">🛒</span><div class="service-num">05</div><div class="service-name">General Merchandise</div><p class="service-desc">Buy and sell transactions handled with professionalism. Quality products, transparent pricing, and the same data-driven standards we apply to all services.</p></div>
+        <div class="service-card reveal reveal-delay-2"><span class="service-icon">🎯</span><div class="service-num">06</div><div class="service-name">Physical Advisory & Consulting</div><p class="service-desc">Face-to-face consultations for clients who need direct, expert engagement. Personalised sessions built around your specific financial situation.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section id="about">
+    <div class="section-inner">
+      <div class="about-layout">
+        <div class="about-visual reveal">
+          <div class="about-frame-2"></div>
+          <div class="about-frame"></div>
+          <div class="about-inner-box">
+            <div class="about-monogram">AE</div>
+            <div class="about-est">AMHANi Enterprise</div>
+            <div class="about-pillars">
+              <span class="pillar">Data-Driven</span>
+              <span class="pillar">Transparent</span>
+              <span class="pillar">Quality</span>
+              <span class="pillar">Expert</span>
+            </div>
+          </div>
+        </div>
+        <div class="about-text">
+          <div class="section-label reveal">Our Story</div>
+          <h2 class="section-title reveal reveal-delay-1">Why <span class="accent">AMHANi</span><br>Enterprise Exists</h2>
+          <div class="gold-rule reveal reveal-delay-2"></div>
+          <p class="section-body reveal reveal-delay-2">Too many people start their financial journey with confidence but fall along the way — not because they lacked ambition, but because they lacked proper expert guidance. They relied on rule of thumb where they needed facts.</p>
+          <p class="section-body reveal reveal-delay-3" style="margin-top:1rem;">AMHANi Enterprise was built to close that gap. We are a data-driven consulting firm that works with facts, not assumptions — delivering financial intelligence that actually holds up over time.</p>
+          <div class="about-fact reveal reveal-delay-1" style="margin-top:1.5rem;"><span class="fact-icon">✦</span><div class="fact-text"><strong>We work with facts.</strong> Every recommendation is backed by data, not gut feeling or generalised advice.</div></div>
+          <div class="about-fact reveal reveal-delay-2"><span class="fact-icon">✦</span><div class="fact-text"><strong>We hold you in esteem.</strong> Our clients are not just accounts — they are partners whose financial wellbeing drives everything we do.</div></div>
+          <div class="about-fact reveal reveal-delay-3"><span class="fact-icon">✦</span><div class="fact-text"><strong>Full transparency.</strong> No hidden agendas. No ambiguous advice. You see everything clearly.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MISSION -->
+  <section id="mission">
+    <div class="mission-inner">
+      <div class="section-label reveal" style="justify-content:center;">Our Motivation</div>
+      <blockquote class="mission-quote reveal reveal-delay-1">
+        We hold every client in esteem — because behind every financial decision is a life, a family, a dream. AMHANi Enterprise delivers <span class="highlight">transparency, quality, and data-driven clarity</span> in everything we do.
+      </blockquote>
+      <p class="section-body reveal reveal-delay-2" style="max-width:600px;margin:0 auto 1rem;text-align:center;">Our mission is simple: give every client the expert financial guidance they deserve — powered by facts, delivered with heart.</p>
+      <div class="mission-pillars reveal reveal-delay-3">
+        <div class="mission-pillar"><div class="mission-pillar-icon">🏆</div><div class="mission-pillar-name">Quality</div></div>
+        <div class="mission-pillar"><div class="mission-pillar-icon">🔍</div><div class="mission-pillar-name">Data-Driven</div></div>
+        <div class="mission-pillar"><div class="mission-pillar-icon">🤝</div><div class="mission-pillar-name">Customer First</div></div>
+        <div class="mission-pillar"><div class="mission-pillar-icon">💎</div><div class="mission-pillar-name">Transparency</div></div>
+        <div class="mission-pillar"><div class="mission-pillar-icon">📡</div><div class="mission-pillar-name">Expert Advice</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS -->
+  <section id="testimonials">
+    <div class="section-inner">
+      <div class="section-label reveal">Client Voices</div>
+      <h2 class="section-title reveal reveal-delay-1">What Our Clients <span class="accent">Say</span></h2>
+      <div class="gold-rule reveal reveal-delay-2"></div>
+      <div class="testimonials-grid">
+        <div class="testimonial-card reveal"><div class="testimonial-stars">★★★★★</div><p class="testimonial-text">"AMHANi gave me a clear financial plan I could actually follow. Before them I was just guessing — now every decision is backed by real data."</p><div class="testimonial-author"><div class="author-avatar">C</div><div><div class="author-name">Chukwuemeka A.</div><div class="author-role">Business Owner, Lagos</div></div></div></div>
+        <div class="testimonial-card reveal reveal-delay-1"><div class="testimonial-stars">★★★★★</div><p class="testimonial-text">"CONSULTAMHANi is something else. I asked it about TSLA at midnight and had a full market analysis in seconds. Genuinely useful."</p><div class="testimonial-author"><div class="author-avatar">F</div><div><div class="author-name">Fatima M.</div><div class="author-role">Investor, Abuja</div></div></div></div>
+        <div class="testimonial-card reveal reveal-delay-2"><div class="testimonial-stars">★★★★★</div><p class="testimonial-text">"What I appreciate most is the transparency. They show you the data, explain the reasoning, and never push you without facts to back it."</p><div class="testimonial-author"><div class="author-avatar">B</div><div><div class="author-name">Bayo O.</div><div class="author-role">Financial Analyst, PH</div></div></div></div>
+      </div>
+      <p style="text-align:center;margin-top:2rem;font-size:.72rem;color:var(--white-muted);letter-spacing:.12em;font-family:var(--font-mono);">— Testimonials will be updated with verified client reviews —</p>
+    </div>
+  </section>
+
+  <!-- CONSULT CTA -->
+  <section id="consult">
+    <div class="consult-inner">
+      <div class="consult-text reveal">
+        <div class="section-label">AI-Powered Research</div>
+        <h2 class="section-title">Meet<br><span class="accent">CONSULTAMHANi</span></h2>
+        <div class="gold-rule"></div>
+        <p class="section-body">Not everyone has time for a full physical consultation. CONSULTAMHANi is AMHANi's AI-powered financial research agent — available 24/7, instant, and built on the same data-driven standards as our expert team.</p>
+        <p class="section-body" style="margin-top:1rem;">Try it free. When you are ready for unlimited access, subscribe for ₦9,999/month.</p>
+      </div>
+      <div class="consult-panel reveal reveal-delay-2">
+        <div class="consult-panel-label">Powered by AMHANi Enterprise</div>
+        <div class="consult-panel-title">CONSULTAMHANi</div>
+        <div class="free-badge">✦ 5 Free Consultations</div>
+        <p class="consult-panel-desc">Your AI financial research assistant. Ask anything about stocks, markets, investment metrics, and financial planning — anytime.</p>
+        <div style="margin-bottom:2rem;">
+          <div class="consult-feature">Real-time stock price lookups</div>
+          <div class="consult-feature">Market research & news analysis</div>
+          <div class="consult-feature">P/E ratio & financial calculators</div>
+          <div class="consult-feature">Investment analysis on demand</div>
+          <div class="consult-feature">Available 24 hours, 7 days a week</div>
+        </div>
+        <a href="http://localhost:8501" target="_blank" class="btn-primary" style="width:100%;justify-content:center;">Launch CONSULTAMHANi ✦</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section id="contact">
+    <div class="section-inner">
+      <div class="section-label reveal">Get In Touch</div>
+      <h2 class="section-title reveal reveal-delay-1">Let's Talk <span class="accent">Finance</span></h2>
+      <div class="gold-rule reveal reveal-delay-2"></div>
+      <div class="contact-layout">
+        <div>
+          <p class="section-body reveal" style="margin-bottom:2rem;">Ready to make data-driven financial decisions? Reach out to AMHANi Enterprise. We are here to help you build, plan, and grow — with facts, not guesswork.</p>
+          <div class="contact-info-item reveal reveal-delay-1">
+            <div class="contact-icon">📸</div>
+            <div><div class="contact-detail-label">Instagram</div><div class="contact-detail-value"><a href="https://instagram.com/amhanienterprise" target="_blank">@amhanienterprise</a></div></div>
+          </div>
+          <div class="contact-info-item reveal reveal-delay-2">
+            <div class="contact-icon">📧</div>
+            <div><div class="contact-detail-label">Email</div><div class="contact-detail-value"><a href="mailto:hello@amhani.com">hello@amhani.com</a> <span style="font-size:.7rem;color:var(--white-muted);"><!-- UPDATE with real email --></span></div></div>
+          </div>
+          <div class="contact-info-item reveal reveal-delay-3">
+            <div class="contact-icon">📍</div>
+            <div><div class="contact-detail-label">Location</div><div class="contact-detail-value">Nigeria</div></div>
+          </div>
+        </div>
+        <div class="reveal reveal-delay-2">
+          <form class="contact-form" onsubmit="handleForm(event)">
+            <div class="form-group"><label class="form-label">Full Name</label><input type="text" class="form-input" placeholder="Your name" required /></div>
+            <div class="form-group"><label class="form-label">Email Address</label><input type="email" class="form-input" placeholder="you@example.com" required /></div>
+            <div class="form-group"><label class="form-label">Message</label><textarea class="form-textarea" placeholder="Tell us how we can help..." required></textarea></div>
+            <button type="submit" class="btn-primary" style="width:100%;justify-content:center;cursor:none;">Send Message ✦</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-top">
+        <div>
+          <div class="footer-brand-name">AMHANi ENTERPRISE</div>
+          <div class="footer-brand-tag">Financial Consulting & Advisory</div>
+          <p class="footer-brand-desc">A data-driven financial consulting firm that works with facts — not rule of thumb. Expert advisory for your financial future.</p>
+        </div>
+        <div>
+          <div class="footer-col-title">Services</div>
+          <ul class="footer-links">
+            <li><a href="#services">Financial Planning</a></li>
+            <li><a href="#services">Investment Advisory</a></li>
+            <li><a href="#services">Business Development</a></li>
+            <li><a href="#services">General Merchandise</a></li>
+            <li><a href="http://localhost:8501" target="_blank">CONSULTAMHANi AI</a></li>
+          </ul>
+        </div>
+        <div>
+          <div class="footer-col-title">Connect</div>
+          <ul class="footer-links">
+            <li><a href="https://instagram.com/amhanienterprise" target="_blank">Instagram</a></li>
+            <li><a href="#contact">Contact Us</a></li>
+            <li><a href="#about">About AMHANi</a></li>
+            <li><a href="#mission">Our Mission</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <div class="footer-copy">© 2024 AMHANi Enterprise. All rights reserved.</div>
+        <div class="footer-hashtag">#CONSULTAMHANi</div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Cursor
+    const cursor=document.getElementById('cursor'),ring=document.getElementById('cursorRing');
+    let mx=0,my=0,rx=0,ry=0;
+    document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cursor.style.left=mx+'px';cursor.style.top=my+'px';});
+    (function anim(){rx+=(mx-rx)*.12;ry+=(my-ry)*.12;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(anim);})();
+    document.querySelectorAll('a,button,input,textarea,.service-card,.testimonial-card').forEach(el=>{
+      el.addEventListener('mouseenter',()=>{cursor.style.width='14px';cursor.style.height='14px';ring.style.width='52px';ring.style.height='52px';});
+      el.addEventListener('mouseleave',()=>{cursor.style.width='8px';cursor.style.height='8px';ring.style.width='36px';ring.style.height='36px';});
+    });
+    // Navbar
+    const nb=document.getElementById('navbar');
+    window.addEventListener('scroll',()=>nb.classList.toggle('scrolled',window.scrollY>60));
+    // Mobile nav
+    const nt=document.getElementById('navToggle'),nl=document.getElementById('navLinks');
+    nt.addEventListener('click',()=>nl.classList.toggle('open'));
+    nl.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>nl.classList.remove('open')));
+    // Scroll reveal
+    const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target);}});},{threshold:.12,rootMargin:'0px 0px -40px 0px'});
+    document.querySelectorAll('.reveal').forEach(el=>obs.observe(el));
+    // Smooth scroll
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{
+      a.addEventListener('click',function(e){e.preventDefault();const t=document.querySelector(this.getAttribute('href'));if(t){window.scrollTo({top:t.getBoundingClientRect().top+window.scrollY-80,behavior:'smooth'});}});
+    });
+    // Form
+    function handleForm(e){
+      e.preventDefault();
+      const btn=e.target.querySelector('button[type="submit"]'),orig=btn.innerHTML;
+      btn.innerHTML='Message Sent ✦';btn.style.opacity='.7';
+      setTimeout(()=>{btn.innerHTML=orig;btn.style.opacity='1';e.target.reset();},3000);
+    }
+  </script>
+</body>
+</html>
