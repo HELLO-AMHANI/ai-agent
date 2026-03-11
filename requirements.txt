@@ -11,4 +11,4 @@ watchdog
 pytest
 requests
 streamlit-cookies-manager
-supabase requests
+supabase
