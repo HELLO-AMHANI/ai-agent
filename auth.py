@@ -193,13 +193,8 @@ def render_auth_ui():
                         st.session_state.is_subscriber = check_subscription(response.user.id)
                         st.rerun()
                     except Exception as e:
-                        err = str(e).lower()
-                        if "invalid" in err or "credentials" in err:
-                            st.error("Incorrect email or password. Please try again.")
-                        elif "email" in err and "confirm" in err:
-                            st.error("Please verify your email address first. Check your inbox.")
-                        else:
-                            st.error(f"Login failed: {e}")
+                        st.error(f"Login failed - Raw error: {e}")
+                        st.write("Type:", type(e).__name__)
 
         st.markdown("<br>", unsafe_allow_html=True)
 

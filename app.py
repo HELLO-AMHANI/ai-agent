@@ -17,6 +17,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ── TEMPORARY DEBUG — REMOVE AFTER FIXING ────────────────────────────────────
+import streamlit as st
+from config import OPENAI_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY
+
+with st.expander("🔧 DEBUG — remove after fixing"):
+    st.write("OPENAI_API_KEY:", "✅ loaded" if OPENAI_API_KEY else "❌ MISSING")
+    st.write("SUPABASE_URL:", "✅ loaded" if SUPABASE_URL else "❌ MISSING")
+    st.write("SUPABASE_ANON_KEY:", "✅ loaded" if SUPABASE_ANON_KEY else "❌ MISSING")
+    st.write("SUPABASE_SERVICE_KEY:", "✅ loaded" if SUPABASE_SERVICE_KEY else "❌ MISSING")
+    st.write("Raw SUPABASE_URL value:", SUPABASE_URL[:30] + "..." if SUPABASE_URL else "EMPTY")
+# ── END DEBUG ─────────────────────────────────────────────────────────────────
+
 BRAND_NAME      = "AMHANi"
 INTERFACE_TITLE = "CONSULTAMHANi"
 
