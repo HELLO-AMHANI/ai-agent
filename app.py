@@ -1,14 +1,15 @@
-# app.py — AMHANi | CONSULTAMHANi | Phase 4
-import os
+# app.py — AMHANi | CONSULTAMHANi | Full App
+# All secrets loaded from config.py (works locally AND on Streamlit Cloud)
+
+import uuid
 import streamlit as st
-from dotenv import load_dotenv
+
+from config import AGENT_NAME, COOKIE_SECRET, APP_URL
 from limiter import get_usage, increment_usage, is_limited, remaining, FREE_LIMIT
 from auth import init_auth_state, is_logged_in, get_user_email, logout, render_auth_ui, check_subscription
 from payments import create_subscription_link, get_subscription_status
 
-load_dotenv()
-
-# ── Page config ───────────────────────────────────────────────────────────────
+# ── Page config (MUST be first Streamlit call) ────────────────────────────────
 st.set_page_config(
     page_title="CONSULTAMHANi",
     page_icon="✦",
@@ -18,8 +19,6 @@ st.set_page_config(
 
 BRAND_NAME      = "AMHANi"
 INTERFACE_TITLE = "CONSULTAMHANi"
-AGENT_NAME      = os.getenv("AGENT_NAME", "AMHANi")
-APP_URL         = os.getenv("APP_URL", "http://localhost:8501")
 
 # ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -37,35 +36,39 @@ st.markdown("""
     --surface-2:  #1A1A14;
     --border:     rgba(201,168,76,0.25);
     --red:        #C0392B;
-    --green:      #27AE60;
 }
 
-html, body, [class*="css"] { font-family:'Montserrat',sans-serif; background-color:var(--black) !important; color:var(--white) !important; }
-.stApp { background:linear-gradient(160deg,#0A0A08 0%,#111109 50%,#0D0D0A 100%); }
-#MainMenu, footer, header { visibility:hidden; }
-.block-container { padding-top:2rem; padding-bottom:2rem; max-width:780px; }
+html, body, [class*="css"] {
+    font-family: 'Montserrat', sans-serif;
+    background-color: var(--black) !important;
+    color: var(--white) !important;
+}
+.stApp { background: linear-gradient(160deg,#0A0A08 0%,#111109 50%,#0D0D0A 100%); }
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 780px; }
 
 /* Header */
 .amhani-header { text-align:center; padding:2.5rem 1rem 1.5rem; border-bottom:1px solid var(--border); margin-bottom:2rem; }
 .amhani-wordmark { font-family:'Cormorant Garamond',serif; font-size:3.6rem; font-weight:700; letter-spacing:0.18em; background:linear-gradient(135deg,var(--gold-light) 0%,var(--gold) 50%,var(--gold-dim) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; margin:0; line-height:1; }
 .amhani-sub { font-size:0.65rem; font-weight:500; letter-spacing:0.42em; color:var(--gold-dim); text-transform:uppercase; margin-top:0.5rem; }
 .amhani-tagline { font-family:'Cormorant Garamond',serif; font-size:1.05rem; font-weight:300; color:rgba(250,250,247,0.55); margin-top:1rem; font-style:italic; }
+.amhani-enterprise { font-size:0.55rem; letter-spacing:0.35em; color:rgba(201,168,76,0.35); text-transform:uppercase; margin-top:0.3rem; }
 
 /* Account bar */
 .account-bar { display:flex; align-items:center; justify-content:space-between; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.55rem 1rem; margin-bottom:1.2rem; font-size:0.72rem; }
 .account-email { color:rgba(250,250,247,0.5); letter-spacing:0.04em; }
 .account-badge { font-size:0.62rem; letter-spacing:0.15em; text-transform:uppercase; font-weight:600; padding:0.2rem 0.6rem; border-radius:20px; }
-.badge-pro { background:rgba(201,168,76,0.15); color:var(--gold); border:1px solid rgba(201,168,76,0.3); }
+.badge-pro  { background:rgba(201,168,76,0.15); color:var(--gold); border:1px solid rgba(201,168,76,0.3); }
 .badge-free { background:rgba(250,250,247,0.05); color:rgba(250,250,247,0.35); border:1px solid rgba(250,250,247,0.1); }
 
-/* Usage bar */
+/* Usage dots */
 .usage-bar-wrap { display:flex; align-items:center; justify-content:space-between; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.6rem 1rem; margin-bottom:1.5rem; font-size:0.72rem; letter-spacing:0.08em; color:var(--gold); text-transform:uppercase; }
 .usage-dots { display:flex; gap:6px; }
 .dot { width:10px; height:10px; border-radius:50%; border:1px solid var(--gold-dim); background:transparent; }
 .dot.used { background:var(--gold); border-color:var(--gold); }
 .dot.warn { background:var(--red); border-color:var(--red); }
 
-/* Chat */
+/* Chat bubbles */
 .msg-wrap { display:flex; flex-direction:column; gap:1rem; margin-bottom:1.5rem; }
 .msg { display:flex; flex-direction:column; max-width:88%; }
 .msg.user  { align-self:flex-end;  align-items:flex-end; }
@@ -99,8 +102,8 @@ html, body, [class*="css"] { font-family:'Montserrat',sans-serif; background-col
 .paywall-perk { font-size:0.78rem; color:rgba(250,250,247,0.7); line-height:2; }
 .paywall-perk::before { content:"✦ "; color:var(--gold); }
 
-/* Plan status card */
-.plan-card { background:var(--surface-2); border:1px solid rgba(39,174,96,0.3); border-radius:8px; padding:1rem 1.2rem; margin-bottom:1.2rem; display:flex; align-items:center; justify-content:space-between; }
+/* Plan status */
+.plan-card { background:var(--surface-2); border:1px solid rgba(39,174,96,0.3); border-radius:8px; padding:0.75rem 1.2rem; margin-bottom:1.2rem; display:flex; align-items:center; justify-content:space-between; }
 .plan-active { font-size:0.72rem; letter-spacing:0.12em; text-transform:uppercase; color:#2ECC71; font-weight:600; }
 
 /* Warning */
@@ -117,25 +120,23 @@ html, body, [class*="css"] { font-family:'Montserrat',sans-serif; background-col
 # ── Session state init ────────────────────────────────────────────────────────
 init_auth_state()
 
-session_defaults = {
-    "messages":   [],
-    "executor":   None,
-    "ip":         None,
-    "session_q":  0,
-}
-for k, v in session_defaults.items():
+for k, v in {
+    "messages":  [],
+    "executor":  None,
+    "ip":        None,
+    "session_q": 0,
+}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 
-# ── Visitor ID (for free-tier tracking) ───────────────────────────────────────
+# ── Visitor ID (free-tier tracking) ──────────────────────────────────────────
 if st.session_state.ip is None:
-    import uuid
     try:
         from streamlit_cookies_manager import EncryptedCookieManager
         cookies = EncryptedCookieManager(
             prefix="amhani_",
-            password=os.getenv("COOKIE_SECRET", "amhani-secret"),
+            password=COOKIE_SECRET,
         )
         if not cookies.ready():
             st.stop()
@@ -151,7 +152,7 @@ if st.session_state.ip is None:
 VISITOR_ID = st.session_state.ip
 
 
-# ── Load agent ─────────────────────────────────────────────────────────────────
+# ── Load agent (cached across reruns) ────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_agent():
     from agent import build_agent
@@ -162,32 +163,32 @@ def load_agent():
 st.markdown(f"""
 <div class="amhani-header">
     <p class="amhani-wordmark">{BRAND_NAME}</p>
-    <p class="amhani-sub">Financial Intelligence</p>
-    <p class="amhani-tagline">Your personal AI-powered financial research consultant</p>
+    <p class="amhani-sub">CONSULTAMHANi</p>
+    <p class="amhani-tagline">Your AI-powered financial research consultant</p>
+    <p class="amhani-enterprise">AMHANi Enterprise · Financial Intelligence</p>
 </div>
 """, unsafe_allow_html=True)
 
 
-# ── Step 4: Auth gate — show login/signup if not logged in ────────────────────
+# ── Auth gate ─────────────────────────────────────────────────────────────────
 if not is_logged_in():
     render_auth_ui()
     st.stop()
 
 
-# ── Step 5: Subscriber check — logged-in users ───────────────────────────────
-user        = st.session_state.user
-user_email  = get_user_email()
-subscribed  = st.session_state.is_subscriber
+# ── Subscriber check ──────────────────────────────────────────────────────────
+user       = st.session_state.user
+user_email = get_user_email()
+subscribed = st.session_state.is_subscriber
 
-# Re-verify subscription status on each session load (catches cancellations)
-if subscribed is False:
+if not subscribed:
     live_status = get_subscription_status(user_email)
     if live_status == "active":
         st.session_state.is_subscriber = True
         subscribed = True
 
 
-# ── Account bar (Step 6) ───────────────────────────────────────────────────────
+# ── Account bar ───────────────────────────────────────────────────────────────
 badge_class = "badge-pro"  if subscribed else "badge-free"
 badge_label = "PRO ✦"      if subscribed else "FREE"
 short_email = user_email[:28] + "..." if len(user_email) > 28 else user_email
@@ -206,17 +207,17 @@ with col_logout:
         st.rerun()
 
 
-# ── Load agent on first run ────────────────────────────────────────────────────
+# ── Load agent ────────────────────────────────────────────────────────────────
 if st.session_state.executor is None:
     with st.spinner("Initialising CONSULTAMHANi..."):
         try:
             st.session_state.executor = load_agent()
         except RuntimeError as e:
-            st.error(f"Startup error: {e}")
+            st.error(f"Agent startup error: {e}")
             st.stop()
 
 
-# ── Step 5: Usage tracking (free users only) ──────────────────────────────────
+# ── Usage tracking (free users only) ─────────────────────────────────────────
 if not subscribed:
     visitor_remaining = remaining(VISITOR_ID)
     visitor_limited   = is_limited(VISITOR_ID)
@@ -241,8 +242,7 @@ if not subscribed:
         </div>
         """, unsafe_allow_html=True)
 else:
-    # Step 6: Show active plan status for subscribers
-    st.markdown(f"""
+    st.markdown("""
     <div class="plan-card">
         <span style="font-size:0.78rem; color:rgba(250,250,247,0.6);">
             CONSULTAMHANi — Monthly Plan
@@ -252,7 +252,7 @@ else:
     """, unsafe_allow_html=True)
 
 
-# ── Chat history ───────────────────────────────────────────────────────────────
+# ── Chat history ──────────────────────────────────────────────────────────────
 if st.session_state.messages:
     msgs_html = '<div class="msg-wrap">'
     for msg in st.session_state.messages:
@@ -268,9 +268,9 @@ if st.session_state.messages:
     st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
 
 
-# ── Paywall (free users who hit limit) ────────────────────────────────────────
+# ── Paywall ───────────────────────────────────────────────────────────────────
 if not subscribed and is_limited(VISITOR_ID):
-    topics = [m["content"][:40] + "..." for m in st.session_state.messages if m["role"] == "user"]
+    topics     = [m["content"][:40] + "..." for m in st.session_state.messages if m["role"] == "user"]
     topics_str = " · ".join(topics[:3]) if topics else "stocks, markets, financial data"
 
     st.markdown(f"""
@@ -278,6 +278,7 @@ if not subscribed and is_limited(VISITOR_ID):
         <div class="paywall-title">You've Found Your Edge</div>
         <div class="paywall-body">
             You explored: <em style="color:var(--gold-dim)">{topics_str}</em><br><br>
+            You've used your {FREE_LIMIT} complimentary consultations.
             Subscribe to {INTERFACE_TITLE} for unlimited real-time financial intelligence.
         </div>
         <div class="paywall-stats">
@@ -294,7 +295,7 @@ if not subscribed and is_limited(VISITOR_ID):
                 <div class="paywall-stat-label">Always On</div>
             </div>
         </div>
-        <div class="paywall-price">₦ 29,999</div>
+        <div class="paywall-price">₦ 9,999</div>
         <div class="paywall-period">per month &nbsp;·&nbsp; cancel anytime</div>
         <div class="paywall-perks">
             <div class="paywall-perk">Unlimited financial consultations</div>
@@ -316,7 +317,7 @@ if not subscribed and is_limited(VISITOR_ID):
                         f'<meta http-equiv="refresh" content="0; url={pay_url}">',
                         unsafe_allow_html=True,
                     )
-                    st.info(f"If not redirected, [click here]({pay_url})")
+                    st.info(f"If not redirected automatically — [click here to pay]({pay_url})")
                 except Exception as e:
                     st.error(f"Payment error: {e}")
     st.stop()
@@ -324,7 +325,6 @@ if not subscribed and is_limited(VISITOR_ID):
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 col_input, col_btn = st.columns([5, 1])
-
 with col_input:
     user_input = st.text_input(
         label="input",
@@ -332,7 +332,6 @@ with col_input:
         placeholder="Ask about stocks, markets, financial analysis...",
         key="chat_input",
     )
-
 with col_btn:
     send = st.button("ASK", use_container_width=True)
 
@@ -351,7 +350,6 @@ if send and user_input.strip():
 
     st.session_state.messages.append({"role": "agent", "content": response})
 
-    # Only increment for free users
     if not subscribed:
         increment_usage(VISITOR_ID)
 
@@ -381,7 +379,7 @@ if not st.session_state.messages:
 st.markdown("""
 <div style="text-align:center; padding:2rem 0 0.5rem; border-top:1px solid rgba(201,168,76,0.12); margin-top:2rem;">
     <span style="font-size:0.62rem; letter-spacing:0.25em; text-transform:uppercase; color:rgba(201,168,76,0.35);">
-        AMHANi &nbsp;·&nbsp; #CONSULTAMHANi &nbsp;·&nbsp; Financial Intelligence
+        AMHANi Enterprise &nbsp;·&nbsp; #CONSULTAMHANi &nbsp;·&nbsp; Financial Intelligence
     </span>
 </div>
 """, unsafe_allow_html=True)

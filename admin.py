@@ -1,11 +1,10 @@
-# admin.py — AMHANi | Phase 4: Admin Dashboard with Subscriber Metrics
-import os
+# admin.py — AMHANi | Admin Dashboard
+# All secrets loaded from config.py (works locally AND on Streamlit Cloud)
+
 import time
 import streamlit as st
-from dotenv import load_dotenv
+from config import ADMIN_PASSWORD, SUPABASE_URL, SUPABASE_SERVICE_KEY, PAYSTACK_PLAN_CODE
 from limiter import get_all_stats, reset_ip, FREE_LIMIT
-
-load_dotenv()
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -14,10 +13,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-ADMIN_PASSWORD   = os.getenv("ADMIN_PASSWORD", "amhani-admin-2024")
-PAYSTACK_SECRET  = os.getenv("PAYSTACK_SECRET_KEY", "")
-PLAN_CODE        = os.getenv("PAYSTACK_PLAN_CODE", "")
 
 # ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -28,11 +23,11 @@ html, body, [class*="css"] { font-family:'Montserrat',sans-serif; background:#0A
 #MainMenu, footer, header { visibility:hidden; }
 .admin-header { border-bottom:1px solid rgba(201,168,76,0.25); padding-bottom:1rem; margin-bottom:2rem; }
 .admin-title { font-family:'Cormorant Garamond',serif; font-size:2rem; font-weight:700; color:#C9A84C; letter-spacing:0.15em; }
-.admin-sub { font-size:0.65rem; letter-spacing:0.3em; text-transform:uppercase; color:#8B6914; margin-top:0.2rem; }
-.section-label { font-size:0.62rem; letter-spacing:0.28em; text-transform:uppercase; color:#8B6914; margin-bottom:1rem; margin-top:1.5rem; }
+.admin-sub { font-size:0.62rem; letter-spacing:0.3em; text-transform:uppercase; color:#8B6914; margin-top:0.3rem; }
+.section-label { font-size:0.6rem; letter-spacing:0.28em; text-transform:uppercase; color:#8B6914; margin-bottom:1rem; margin-top:1.5rem; border-bottom:1px solid rgba(201,168,76,0.1); padding-bottom:0.5rem; }
 .metric-card { background:#1A1A14; border:1px solid rgba(201,168,76,0.2); border-radius:8px; padding:1.5rem; text-align:center; }
 .metric-num { font-family:'Cormorant Garamond',serif; font-size:2.5rem; font-weight:700; color:#E8C97A; }
-.metric-label { font-size:0.62rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(250,250,247,0.4); margin-top:0.3rem; }
+.metric-label { font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(250,250,247,0.4); margin-top:0.3rem; }
 .metric-card.green { border-color:rgba(39,174,96,0.3); }
 .metric-card.green .metric-num { color:#2ECC71; }
 .stTextInput>div>div>input { background:#1A1A14 !important; border:1px solid rgba(201,168,76,0.25) !important; border-radius:6px !important; color:#FAFAF7 !important; font-family:'Montserrat',sans-serif !important; }
@@ -48,13 +43,16 @@ if "admin_auth" not in st.session_state:
 if not st.session_state.admin_auth:
     st.markdown("""
     <div style="max-width:360px; margin:8rem auto; text-align:center;">
-        <div style="font-family:'Cormorant Garamond',serif; font-size:2rem; color:#C9A84C; letter-spacing:0.15em; margin-bottom:0.4rem;">AMHANi</div>
-        <div style="font-size:0.6rem; letter-spacing:0.3em; color:#8B6914; text-transform:uppercase; margin-bottom:2rem;">Admin Access</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:2.2rem; color:#C9A84C; letter-spacing:0.18em; margin-bottom:0.3rem;">AMHANi</div>
+        <div style="font-size:0.55rem; letter-spacing:0.4em; color:#8B6914; text-transform:uppercase; margin-bottom:0.3rem;">Enterprise</div>
+        <div style="font-size:0.58rem; letter-spacing:0.28em; color:rgba(250,250,247,0.25); text-transform:uppercase; margin-bottom:2rem;">Admin Access</div>
     </div>
     """, unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        pwd = st.text_input("Password", type="password", key="admin_pwd")
+        pwd = st.text_input("Password", type="password", key="admin_pwd", placeholder="Enter admin password")
+        st.markdown("<br>", unsafe_allow_html=True)
         if st.button("ENTER", use_container_width=True):
             if pwd == ADMIN_PASSWORD:
                 st.session_state.admin_auth = True
@@ -73,31 +71,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Step 7: Pull subscriber count from Supabase ───────────────────────────────
-def get_subscriber_count() -> dict:
+# ── Pull subscriber data from Supabase ────────────────────────────────────────
+def get_subscriber_data() -> dict:
     try:
         from supabase import create_client
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            return {"total": 0, "active": 0, "mrr": 0}
-        sb = create_client(url, key)
-        result = sb.table("subscribers").select("status").execute()
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            return {"total": 0, "active": 0, "mrr": 0, "rows": []}
+        sb     = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        result = sb.table("subscribers").select("*").order("created_at", desc=True).execute()
         rows   = result.data or []
         active = sum(1 for r in rows if r.get("status") == "active")
         return {
             "total":  len(rows),
             "active": active,
             "mrr":    active * 9999,
+            "rows":   rows,
         }
-    except Exception:
-        return {"total": 0, "active": 0, "mrr": 0}
+    except Exception as e:
+        return {"total": 0, "active": 0, "mrr": 0, "rows": [], "error": str(e)}
 
 
-stats      = get_all_stats()
-sub_data   = get_subscriber_count()
+stats   = get_all_stats()
+sub_data = get_subscriber_data()
 
-# ── Section 1: Revenue & Subscribers ──────────────────────────────────────────
+# ── Section 1: Revenue ────────────────────────────────────────────────────────
 st.markdown('<div class="section-label">Revenue & Subscribers</div>', unsafe_allow_html=True)
 
 c1, c2, c3 = st.columns(3)
@@ -120,9 +117,7 @@ with c3:
         <div class="metric-label">Total Signups</div>
     </div>""", unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Section 2: Usage & Funnel ──────────────────────────────────────────────────
+# ── Section 2: Usage Funnel ───────────────────────────────────────────────────
 st.markdown('<div class="section-label">Usage & Conversion Funnel</div>', unsafe_allow_html=True)
 
 c4, c5, c6, c7 = st.columns(4)
@@ -151,38 +146,26 @@ with c7:
         <div class="metric-label">Paywall Rate</div>
     </div>""", unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Section 3: Subscriber list from Supabase ──────────────────────────────────
+# ── Section 3: Subscriber list ────────────────────────────────────────────────
 st.markdown('<div class="section-label">Subscriber List</div>', unsafe_allow_html=True)
 
-try:
-    from supabase import create_client
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_KEY")
-    if url and key:
-        sb      = create_client(url, key)
-        result  = sb.table("subscribers").select("*").order("created_at", desc=True).execute()
-        subs    = result.data or []
-        if subs:
-            for sub in subs:
-                status     = sub.get("status", "unknown")
-                email      = sub.get("email", "N/A")
-                created    = sub.get("created_at", "")[:10]
-                status_col = "#2ECC71" if status == "active" else "#E74C3C"
-                col_a, col_b, col_c = st.columns([3, 2, 2])
-                with col_a:
-                    st.markdown(f"<span style='font-size:0.78rem; color:rgba(250,250,247,0.7);'>{email}</span>", unsafe_allow_html=True)
-                with col_b:
-                    st.markdown(f"<span style='font-size:0.72rem; color:{status_col}; text-transform:uppercase; letter-spacing:0.1em;'>● {status}</span>", unsafe_allow_html=True)
-                with col_c:
-                    st.markdown(f"<span style='font-size:0.72rem; color:rgba(250,250,247,0.35);'>Joined {created}</span>", unsafe_allow_html=True)
-        else:
-            st.markdown("<span style='font-size:0.8rem; color:rgba(250,250,247,0.3);'>No subscribers yet. Share #CONSULTAMHANi.</span>", unsafe_allow_html=True)
-except Exception as e:
-    st.warning(f"Could not load subscriber list: {e}")
-
-st.markdown("<br>", unsafe_allow_html=True)
+if sub_data.get("error"):
+    st.warning(f"Could not load subscriber list: {sub_data['error']}")
+elif not sub_data["rows"]:
+    st.markdown("<span style='font-size:0.8rem; color:rgba(250,250,247,0.3);'>No subscribers yet. Share #CONSULTAMHANi to drive sign-ups.</span>", unsafe_allow_html=True)
+else:
+    for sub in sub_data["rows"]:
+        status     = sub.get("status", "unknown")
+        email      = sub.get("email", "N/A")
+        created    = sub.get("created_at", "")[:10]
+        status_col = "#2ECC71" if status == "active" else "#E74C3C"
+        col_a, col_b, col_c = st.columns([3, 2, 2])
+        with col_a:
+            st.markdown(f"<span style='font-size:0.78rem; color:rgba(250,250,247,0.75);'>{email}</span>", unsafe_allow_html=True)
+        with col_b:
+            st.markdown(f"<span style='font-size:0.72rem; color:{status_col}; text-transform:uppercase; letter-spacing:0.1em;'>● {status}</span>", unsafe_allow_html=True)
+        with col_c:
+            st.markdown(f"<span style='font-size:0.72rem; color:rgba(250,250,247,0.35);'>Joined {created}</span>", unsafe_allow_html=True)
 
 # ── Section 4: Visitor log ────────────────────────────────────────────────────
 st.markdown('<div class="section-label">Free Visitor Log</div>', unsafe_allow_html=True)
@@ -198,6 +181,7 @@ else:
         time_str  = time.strftime("%Y-%m-%d %H:%M", time.localtime(last_seen)) if last_seen else "N/A"
         status    = "🔴 Hit Paywall" if hit_wall else f"🟡 {count}/{FREE_LIMIT} used"
         short_id  = visitor_id[:16] + "..."
+
         col_a, col_b, col_c, col_d = st.columns([3, 2, 2, 1])
         with col_a:
             st.markdown(f"<span style='font-size:0.72rem; color:rgba(250,250,247,0.4); font-family:monospace;'>{short_id}</span>", unsafe_allow_html=True)
@@ -222,9 +206,9 @@ with col_l:
         st.rerun()
 
 st.markdown("""
-<div style="text-align:center; padding:2rem 0 0.5rem; border-top:1px solid rgba(201,168,76,0.1); margin-top:2rem;">
-    <span style="font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:rgba(201,168,76,0.25);">
-        AMHANi Admin &nbsp;·&nbsp; Internal Use Only
+<div style="text-align:center; padding:2rem 0 0.5rem; border-top:1px solid rgba(201,168,76,0.08); margin-top:2rem;">
+    <span style="font-size:0.58rem; letter-spacing:0.22em; text-transform:uppercase; color:rgba(201,168,76,0.2);">
+        AMHANi Enterprise Admin &nbsp;·&nbsp; Internal Use Only
     </span>
 </div>
 """, unsafe_allow_html=True)
