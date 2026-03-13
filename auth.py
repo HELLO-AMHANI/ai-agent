@@ -1,5 +1,4 @@
-# auth.py — AMHANi | Phase 4: Supabase Authentication
-# All secrets loaded from config.py (works locally AND on Streamlit Cloud)
+# auth.py — CONSULTAMHANi | Supabase Authentication
 
 import streamlit as st
 from supabase import create_client, Client
@@ -10,22 +9,20 @@ from config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY
 def get_supabase() -> Client:
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError(
-            "Supabase credentials missing.\n"
-            "Locally: add SUPABASE_URL and SUPABASE_ANON_KEY to .env\n"
-            "Streamlit Cloud: add them in App Settings → Secrets."
+            "Supabase credentials missing. "
+            "Add SUPABASE_URL and SUPABASE_ANON_KEY to your secrets."
         )
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 
-# ── Session state helpers ─────────────────────────────────────────────────────
+# ── Session helpers ───────────────────────────────────────────────────────────
 def init_auth_state():
-    defaults = {
+    for k, v in {
         "user":          None,
         "access_token":  None,
         "is_subscriber": False,
-        "auth_view":     "login",  # login | signup | reset
-    }
-    for k, v in defaults.items():
+        "auth_view":     "login",
+    }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
@@ -41,28 +38,21 @@ def get_user_email() -> str:
 
 def logout():
     try:
-        supabase = get_supabase()
-        supabase.auth.sign_out()
+        get_supabase().auth.sign_out()
     except Exception:
         pass
-    st.session_state.user          = None
-    st.session_state.access_token  = None
+    for k in ["user", "access_token", "is_subscriber", "messages", "executor"]:
+        st.session_state[k] = None if k != "messages" else []
     st.session_state.is_subscriber = False
-    st.session_state.messages      = []
 
 
-# ── Subscriber check ──────────────────────────────────────────────────────────
 def check_subscription(user_id: str) -> bool:
-    """
-    Query the subscribers table in Supabase.
-    Returns True if the user has an active subscription.
-    """
     try:
         if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
             return False
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        sb     = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         result = (
-            supabase.table("subscribers")
+            sb.table("subscribers")
             .select("status")
             .eq("user_id", user_id)
             .eq("status", "active")
@@ -73,60 +63,61 @@ def check_subscription(user_id: str) -> bool:
         return False
 
 
-# ── Auth UI styling ───────────────────────────────────────────────────────────
+# ── Shared CSS ────────────────────────────────────────────────────────────────
 AUTH_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Montserrat:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300&family=Cinzel:wght@400;600;700&family=Montserrat:wght@200;300;400;500;600&display=swap');
 
-.auth-wrap {
-    max-width: 420px;
-    margin: 2rem auto;
+.auth-header {
+    text-align: center;
+    padding: 2rem 1rem 1.5rem;
+    border-bottom: 1px solid rgba(201,168,76,0.2);
+    margin-bottom: 2rem;
 }
-.auth-wordmark {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 3rem;
+.auth-logo {
+    font-family: 'Cinzel', serif;
+    font-size: 2.2rem;
     font-weight: 700;
-    letter-spacing: 0.18em;
-    background: linear-gradient(135deg, #E8C97A 0%, #C9A84C 50%, #8B6914 100%);
+    letter-spacing: 0.2em;
+    background: linear-gradient(135deg, #E8C97A 0%, #C9A84C 55%, #8B6914 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    text-align: center;
     display: block;
-    margin-bottom: 0.2rem;
+    margin-bottom: 0.25rem;
 }
-.auth-sub {
-    text-align: center;
-    font-size: 0.58rem;
-    letter-spacing: 0.4em;
-    text-transform: uppercase;
-    color: #8B6914;
-    margin-bottom: 0.4rem;
-    display: block;
+.auth-tagline {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 0.95rem;
+    font-style: italic;
+    color: rgba(250,250,247,0.45);
+    margin-top: 0.5rem;
+    letter-spacing: 0.04em;
 }
 .auth-enterprise {
-    text-align: center;
-    font-size: 0.62rem;
-    letter-spacing: 0.3em;
+    font-size: 0.55rem;
+    letter-spacing: 0.38em;
     text-transform: uppercase;
-    color: rgba(250,250,247,0.3);
-    margin-bottom: 2.5rem;
+    color: rgba(201,168,76,0.35);
+    margin-top: 0.4rem;
     display: block;
 }
 .auth-form-title {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     font-weight: 600;
     color: #C9A84C;
     text-align: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.04em;
 }
 .auth-hint {
-    font-size: 0.72rem;
-    color: rgba(250,250,247,0.4);
+    font-size: 0.75rem;
+    color: rgba(250,250,247,0.38);
     text-align: center;
     line-height: 1.7;
-    margin-bottom: 1rem;
+    margin-bottom: 1.2rem;
+    font-weight: 300;
 }
 </style>
 """
@@ -134,10 +125,6 @@ AUTH_CSS = """
 
 # ── Auth UI ───────────────────────────────────────────────────────────────────
 def render_auth_ui():
-    """
-    Renders the full login / signup / reset UI.
-    Returns True if user successfully authenticated.
-    """
     init_auth_state()
     st.markdown(AUTH_CSS, unsafe_allow_html=True)
 
@@ -149,14 +136,14 @@ def render_auth_ui():
 
     # Brand header
     st.markdown("""
-    <div class="auth-wrap">
-        <span class="auth-wordmark">AMHANi</span>
-        <span class="auth-sub">CONSULTAMHANi</span>
-        <span class="auth-enterprise">AMHANi Enterprise · Financial Intelligence</span>
+    <div class="auth-header">
+        <span class="auth-logo">CONSULTAMHANi</span>
+        <p class="auth-tagline">AI-Powered Financial Intelligence</p>
+        <span class="auth-enterprise">AMHANi Enterprise · Financial Consulting & Advisory</span>
     </div>
     """, unsafe_allow_html=True)
 
-    # Tab selector
+    # Tab buttons
     col1, col2 = st.columns(2)
     with col1:
         if st.button("LOG IN", use_container_width=True, key="tab_login"):
@@ -172,53 +159,60 @@ def render_auth_ui():
     # ── LOGIN ─────────────────────────────────────────────────────────────────
     if st.session_state.auth_view == "login":
         st.markdown('<div class="auth-form-title">Welcome Back</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-hint">Log in to access your financial assistant</div>', unsafe_allow_html=True)
 
-        email    = st.text_input("Email",    key="login_email",    placeholder="you@example.com")
-        password = st.text_input("Password", key="login_password", placeholder="••••••••", type="password")
+        email    = st.text_input("Email address", key="login_email", placeholder="you@example.com")
+        password = st.text_input("Password",      key="login_password", placeholder="Your password", type="password")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        if st.button("LOG IN TO AMHANi", use_container_width=True, key="do_login"):
+        if st.button("LOG IN TO CONSULTAMHANi", use_container_width=True, key="do_login"):
             if not email or not password:
                 st.error("Please enter your email and password.")
             else:
                 with st.spinner("Authenticating..."):
                     try:
-                        response = supabase.auth.sign_in_with_password({
-                            "email":    email,
+                        res = supabase.auth.sign_in_with_password({
+                            "email":    email.strip(),
                             "password": password,
                         })
-                        st.session_state.user          = response.user
-                        st.session_state.access_token  = response.session.access_token
-                        st.session_state.is_subscriber = check_subscription(response.user.id)
+                        st.session_state.user          = res.user
+                        st.session_state.access_token  = res.session.access_token
+                        st.session_state.is_subscriber = check_subscription(res.user.id)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Login failed - Raw error: {e}")
-                        st.write("Type:", type(e).__name__)
+                        msg = str(e).lower()
+                        if "invalid" in msg or "credentials" in msg or "email" in msg and "password" in msg:
+                            st.error("Incorrect email or password. Please try again.")
+                        elif "confirm" in msg or "verify" in msg:
+                            st.error("Please verify your email first. Check your inbox.")
+                        elif "rate" in msg:
+                            st.error("Too many attempts. Please wait a moment and try again.")
+                        else:
+                            st.error(f"Login error: {e}")
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        if st.button("Forgot password?", key="go_reset"):
+        if st.button("Forgot your password?", key="go_reset"):
             st.session_state.auth_view = "reset"
             st.rerun()
 
     # ── SIGNUP ────────────────────────────────────────────────────────────────
     elif st.session_state.auth_view == "signup":
-        st.markdown('<div class="auth-form-title">Create Your Account</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-form-title">Create Account</div>', unsafe_allow_html=True)
         st.markdown("""
         <div class="auth-hint">
-            Start with 5 free consultations.<br>
-            Upgrade anytime for unlimited access.
+            Start with 5 free consultations — no card required.<br>
+            Upgrade to unlimited access for ₦29,999/month.
         </div>
         """, unsafe_allow_html=True)
 
-        email    = st.text_input("Email",            key="signup_email",    placeholder="you@example.com")
+        email    = st.text_input("Email address",    key="signup_email",    placeholder="you@example.com")
         password = st.text_input("Password",         key="signup_password", placeholder="Minimum 8 characters", type="password")
-        confirm  = st.text_input("Confirm Password", key="signup_confirm",  placeholder="Repeat your password",  type="password")
+        confirm  = st.text_input("Confirm password", key="signup_confirm",  placeholder="Repeat your password",  type="password")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        if st.button("CREATE ACCOUNT", use_container_width=True, key="do_signup"):
+        if st.button("CREATE MY ACCOUNT", use_container_width=True, key="do_signup"):
             if not email or not password or not confirm:
                 st.error("Please fill in all fields.")
             elif password != confirm:
@@ -228,19 +222,19 @@ def render_auth_ui():
             else:
                 with st.spinner("Creating your account..."):
                     try:
-                        response = supabase.auth.sign_up({
-                            "email":    email,
+                        res = supabase.auth.sign_up({
+                            "email":    email.strip(),
                             "password": password,
                         })
-                        if response.user:
+                        if res.user:
                             st.success("Account created! Check your email to verify, then log in.")
                             st.session_state.auth_view = "login"
                             st.rerun()
                         else:
                             st.error("Signup failed. Please try again.")
                     except Exception as e:
-                        err = str(e).lower()
-                        if "already" in err or "registered" in err:
+                        msg = str(e).lower()
+                        if "already" in msg or "registered" in msg or "exists" in msg:
                             st.error("An account with this email already exists. Please log in.")
                         else:
                             st.error(f"Signup error: {e}")
@@ -248,8 +242,9 @@ def render_auth_ui():
     # ── PASSWORD RESET ────────────────────────────────────────────────────────
     elif st.session_state.auth_view == "reset":
         st.markdown('<div class="auth-form-title">Reset Password</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-hint">We\'ll send a reset link to your email</div>', unsafe_allow_html=True)
 
-        email = st.text_input("Email", key="reset_email", placeholder="you@example.com")
+        email = st.text_input("Email address", key="reset_email", placeholder="you@example.com")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -258,16 +253,15 @@ def render_auth_ui():
                 st.error("Please enter your email address.")
             else:
                 try:
-                    supabase.auth.reset_password_email(email)
-                    st.success("Reset link sent. Check your email.")
+                    supabase.auth.reset_password_email(email.strip())
+                    st.success("Reset link sent. Check your email inbox.")
                     st.session_state.auth_view = "login"
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        if st.button("← Back to Login", key="back_login"):
+        if st.button("← Back to login", key="back_login"):
             st.session_state.auth_view = "login"
             st.rerun()
 
