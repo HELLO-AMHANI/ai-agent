@@ -1,7 +1,7 @@
 langchain==0.3.25
 langchain-openai==0.3.16
 langchain-community==0.3.23
-langchain-core==0.3.55
+langchain-core==0.3.58
 openai==1.77.0
 python-dotenv==1.1.0
 yfinance==0.2.61
@@ -10,6 +10,3 @@ streamlit==1.45.0
 supabase==2.15.1
 requests==2.32.3
 streamlit-cookies-manager==0.2.0
-click
-watchdog
-pytest
