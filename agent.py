@@ -9,7 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import AgentExecutor
+try:
+    from langchain.agents import create_tool_calling_agent
+except ImportError:
+    from langchain_core.agent import create_tool_calling_agent
 
 # ── ConversationBufferWindowMemory — works across LangChain versions ──
 try:
