@@ -9,7 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor
+try:
+    from langchain.agents import AgentExecutor
+except ImportError:
+    from langchain_core.agents import AgentExecutor
+
 try:
     from langchain.agents import create_tool_calling_agent
 except ImportError:
