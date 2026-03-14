@@ -435,14 +435,14 @@ if question:
 
     # ── Sync short-term memory ────────────────────────────────
     # Pass all messages except the one we just appended
-    sync_memory(st.session_state.messages[:-1])
-
-    # ── Load long-term memory ─────────────────────────────────
-    long_term = load_memory(user_id) if user_id else ""
-
-    # ── Run agent ─────────────────────────────────────────────
-    with st.spinner("AMHANi is thinking..."):
-        result = run_agent(question, long_term_context=long_term)
+chat_history = sync_memory(st.session_state.messages[:-1])
+long_term    = load_memory(user_id) if user_id else ""
+with st.spinner("AMHANi is thinking..."):
+    result = run_agent(
+        question,
+        long_term_context=long_term,
+        chat_history=chat_history,
+    )
 
     answer = result.get("output", "I encountered an issue. Please try again.")
     steps  = result.get("intermediate_steps", [])

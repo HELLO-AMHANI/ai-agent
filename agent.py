@@ -1,86 +1,34 @@
-# =============================================================
-# agent.py — AMHANi ENTERPRISE · Full Agentic Engine
-# FILE 3 OF 7 — FULL REPLACEMENT
-# Delete everything in your existing agent.py and paste this.
-# =============================================================
+# agent.py — AMHANi ENTERPRISE
+# Uses LCEL — no AgentExecutor, works on all Python versions
 
 import os
 from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain.memory import ConversationBufferWindowMemory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain.agents import create_tool_calling_agent
+from langchain.agents import AgentExecutor
 from tools import amhani_tools
-
-# ── ConversationBufferWindowMemory — works across LangChain versions ──
-try:
-    from langchain.memory import ConversationBufferWindowMemory
-except ImportError:
-    try:
-        from langchain_community.memory import ConversationBufferWindowMemory
-    except ImportError:
-        # Fallback: minimal in-memory replacement so app never crashes
-        class ConversationBufferWindowMemory:
-            def __init__(self, **kwargs):
-                self._history = []
-                self.memory_key = kwargs.get("memory_key", "chat_history")
-                self.k = kwargs.get("k", 10)
-
-            def clear(self):
-                self._history = []
-
-            def save_context(self, inp, out):
-                self._history.append((inp.get("input", ""), out.get("output", "")))
-                if len(self._history) > self.k:
-                    self._history = self._history[-self.k:]
-
-            def load_memory_variables(self, _):
-                lines = []
-                for u, a in self._history:
-                    lines.append(f"Human: {u}")
-                    lines.append(f"Assistant: {a}")
-                return {self.memory_key: "\n".join(lines)}
-
-from tools import amhani_tools
-
 
 # ── LLM ──────────────────────────────────────────────────────
-from langchain_openai import ChatOpenAI as _BaseChatOpenAI
-
-class _PatchedLLM(_BaseChatOpenAI):
-    """Drop the 'stop' parameter which gpt-5-mini does not support."""
-    def _get_request_payload(self, input_, *, stop=None, **kwargs):
-        return super()._get_request_payload(input_, stop=None, **kwargs)
-
-llm = _PatchedLLM(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+llm = ChatOpenAI(
+    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
     temperature=1,
     api_key=os.getenv("OPENAI_API_KEY"),
     request_timeout=60,
 )
 
-# ── Short-term memory (last 10 exchanges per session) ─────────
-memory = ConversationBufferWindowMemory(
-    k=10,
-    memory_key="chat_history",
-    return_messages=True,
-    input_key="input",
-    output_key="output",
-)
-
-# ── ReAct Prompt ──────────────────────────────────────────────
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-
+# ── Prompt ────────────────────────────────────────────────────
 agent_prompt = ChatPromptTemplate.from_messages([
     ("system",
      "You are AMHANi, an expert AI financial consultant built by AMHANi Enterprise. "
-     "You help clients with financial planning, investment advisory, business development, "
-     "market research, data analysis, and Python-powered financial calculations.\n\n"
+     "You help clients with financial planning, investment advisory, business "
+     "development, market research, data analysis, and financial calculations.\n\n"
      "Rules:\n"
      "- For complex multi-step requests, use plan_task first\n"
-     "- For code tasks: write AND run code in execute_python — never just describe it\n"
+     "- For code tasks: write AND run code in execute_python\n"
      "- Work with facts and verified data only — never guesswork\n"
      "- Use ₦ for Nigerian Naira where relevant\n"
      "- Be transparent, concise, and professional"),
@@ -89,123 +37,122 @@ agent_prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder("agent_scratchpad"),
 ])
 
-# ── Agent + Executor ──────────────────────────────────────────
+# ── Agent ─────────────────────────────────────────────────────
 _agent = create_tool_calling_agent(
     llm=llm,
     tools=amhani_tools,
     prompt=agent_prompt,
 )
+
 agent_executor = AgentExecutor(
     agent=_agent,
     tools=amhani_tools,
-    memory=memory,
     verbose=True,
     max_iterations=10,
     max_execution_time=90,
-    handle_parsing_errors=True,       # Self-corrects malformed outputs
-    return_intermediate_steps=True,   # Exposes reasoning steps to UI
+    handle_parsing_errors=True,
+    return_intermediate_steps=True,
 )
 
+# ── Short-term memory (in-memory, per session) ────────────────
+# Stored as plain list — no LangChain memory class needed
+# This avoids all version-specific memory import issues
 
-# ── Main entry point ──────────────────────────────────────────
-def run_agent(question: str, long_term_context: str = "") -> dict:
+def sync_memory(messages: list) -> list:
     """
-    Run the agent with automatic retry and self-correction.
-    Injects long-term memory context when available.
+    Convert Streamlit message history to LangChain message objects.
+    Returns a list of HumanMessage / AIMessage for chat_history.
+    """
+    history = []
+    for msg in messages:
+        if msg.get("role") == "user":
+            history.append(HumanMessage(content=msg["content"]))
+        elif msg.get("role") == "assistant":
+            history.append(AIMessage(content=msg["content"]))
+    return history
 
-    Returns a dict with keys:
-      'output'             — final answer string
-      'intermediate_steps' — list of (action, observation) tuples
+
+# ── Main run function ─────────────────────────────────────────
+def run_agent(
+    question: str,
+    long_term_context: str = "",
+    chat_history: list = None,
+) -> dict:
     """
-    # Build full input, injecting long-term context if present
+    Run the agent with retry and self-correction.
+    chat_history: list of LangChain message objects from sync_memory()
+    """
     full_input = question
     if long_term_context and long_term_context.strip():
         full_input = (
             f"{long_term_context.strip()}\n\nCurrent question: {question}"
         )
 
+    history = chat_history or []
     last_error = None
 
     for attempt in range(3):
         try:
-            result = agent_executor.invoke({"input": full_input})
+            result = agent_executor.invoke({
+                "input": full_input,
+                "chat_history": history,
+            })
             output = result.get("output", "")
             if output and len(output.strip()) > 10:
                 return result
         except Exception as e:
             last_error = str(e)
             if attempt < 2:
-                # Feed the error back so the agent tries a different approach
                 full_input = (
-                    f"Your previous attempt raised this error: {last_error}\n"
-                    f"Please try a completely different approach to answer: "
-                    f"{question}"
+                    f"Previous attempt failed: {last_error}\n"
+                    f"Try a different approach to answer: {question}"
                 )
 
     return {
         "output": (
-            "I encountered a technical issue and could not complete your "
-            f"request after 3 attempts.\nLast error: {last_error}\n\n"
-            "Please try rephrasing your question or break it into smaller parts."
+            "I encountered a technical issue after 3 attempts.\n"
+            f"Error: {last_error}\n\n"
+            "Please rephrase your question or try a simpler request."
         ),
         "intermediate_steps": [],
     }
 
 
-# ── Memory sync helper (called by app.py) ─────────────────────
-def sync_memory(messages: list) -> None:
-    """
-    Sync Streamlit's chat history list into LangChain's short-term
-    memory so the agent knows what was said earlier in the session.
-    Call this BEFORE every agent invocation in app.py.
-    """
-    memory.clear()
-    # messages is a flat list: [user, assistant, user, assistant, ...]
-    for i in range(0, len(messages) - 1, 2):
-        if i + 1 < len(messages):
-            u = messages[i]
-            a = messages[i + 1]
-            if u.get("role") == "user" and a.get("role") == "assistant":
-                memory.save_context(
-                    {"input":  u["content"]},
-                    {"output": a["content"]},
-                )
-
-
-# ── CLI (for local testing) ───────────────────────────────────
+# ── CLI ───────────────────────────────────────────────────────
 if __name__ == "__main__":
     import click
 
     @click.command()
-    @click.option("--ask",     default=None,  help="Ask a single question")
-    @click.option("--repl",    is_flag=True,  help="Start interactive mode")
-    @click.option("--verbose", is_flag=True,  help="Show reasoning steps")
+    @click.option("--ask",     default=None, help="Single question")
+    @click.option("--repl",    is_flag=True, help="Interactive mode")
+    @click.option("--verbose", is_flag=True, help="Show steps")
     def cli(ask, repl, verbose):
         if ask:
             result = run_agent(ask)
             print("\n── AMHANi ──────────────────────────────")
             print(result["output"])
             if verbose:
-                steps = result.get("intermediate_steps", [])
-                if steps:
-                    print(f"\n── Reasoning ({len(steps)} steps) ──────────")
-                    for i, (action, obs) in enumerate(steps):
-                        print(f"\nStep {i + 1}: {action.tool}")
-                        print(f"  Input: {str(action.tool_input)[:200]}")
-                        print(f"  Result: {str(obs)[:300]}")
-
+                for i, (action, obs) in enumerate(
+                    result.get("intermediate_steps", [])
+                ):
+                    print(f"\nStep {i+1}: {action.tool}")
+                    print(f"  Input:  {str(action.tool_input)[:200]}")
+                    print(f"  Result: {str(obs)[:300]}")
         elif repl:
-            print("AMHANi Agent  —  type 'exit' to quit\n")
+            print("AMHANi Agent — type 'exit' to quit\n")
+            history = []
             while True:
                 q = input("You: ").strip()
-                if q.lower() in ("exit", "quit", "q"):
-                    print("Goodbye.")
+                if q.lower() in ("exit", "quit"):
                     break
                 if not q:
                     continue
-                result = run_agent(q)
-                print(f"\nAMHANi: {result['output']}\n")
+                result = run_agent(q, chat_history=history)
+                answer = result["output"]
+                print(f"\nAMHANi: {answer}\n")
+                history.append(HumanMessage(content=q))
+                history.append(AIMessage(content=answer))
         else:
-            print("Use --ask 'your question' or --repl for interactive mode.")
+            print("Use --ask 'question' or --repl")
 
     cli()
