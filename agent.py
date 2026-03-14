@@ -9,15 +9,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
-try:
-    from langchain.agents import AgentExecutor
-except ImportError:
-    from langchain_core.agents import AgentExecutor
-
-try:
-    from langchain.agents import create_tool_calling_agent
-except ImportError:
-    from langchain_core.agent import create_tool_calling_agent
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.memory import ConversationBufferWindowMemory
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tools import amhani_tools
 
 # ── ConversationBufferWindowMemory — works across LangChain versions ──
 try:
