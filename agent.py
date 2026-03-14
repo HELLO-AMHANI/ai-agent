@@ -1,102 +1,113 @@
 # agent.py — CONSULTAMHANi | AI Agent Core
-# Uses config.py for all secrets — works locally AND on Streamlit Cloud
+# Uses OpenAI client directly — no LangChain, no version conflicts, works on Python 3.14
 
+import json
 import argparse
-from config import OPENAI_API_KEY, OPENAI_MODEL, AGENT_NAME as DEFAULT_AGENT_NAME, SERPAPI_API_KEY
+from openai import OpenAI
+from config import OPENAI_API_KEY, OPENAI_MODEL, AGENT_NAME as DEFAULT_AGENT_NAME
+from tools import TOOLS_SCHEMA, run_tool
 
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-
-# ── Safe import for create_tool_calling_agent ─────────────────────────────────
-try:
-    from langchain.agents import create_tool_calling_agent, AgentExecutor
-except ImportError:
-    try:
-        from langchain_core.agents import create_tool_calling_agent
-        from langchain.agents import AgentExecutor
-    except ImportError:
-        from langchain.agents.tool_calling_agent.base import create_tool_calling_agent
-        from langchain.agents import AgentExecutor
-
-from tools import get_stock_price, calculate_pe_ratio
+SYSTEM_PROMPT = """You are {agent_name}, a professional AI-powered financial research \
+assistant for AMHANi Enterprise. Help users with stock prices, financial analysis, \
+market research, P/E ratios, investment insights, and business financial advice. \
+Always be concise, accurate, and data-driven. Work with facts — never give vague \
+or speculative advice. Format numbers clearly. Be professional but approachable."""
 
 
-def build_tools():
-    tools = [get_stock_price, calculate_pe_ratio]
+class CONSULTAMHANiAgent:
+    """
+    Direct OpenAI tool-calling agent.
+    No LangChain — no version conflicts — works on any Python version.
+    """
 
-    # Optional SerpAPI web search
-    if SERPAPI_API_KEY:
-        try:
-            from langchain_community.utilities import SerpAPIWrapper
-            from langchain_core.tools import Tool
-            search = SerpAPIWrapper(serpapi_api_key=SERPAPI_API_KEY)
-            tools.append(
-                Tool(
-                    name="WebSearch",
-                    func=search.run,
-                    description=(
-                        "Search the web for recent financial news, market events, "
-                        "or facts. Input should be a plain search query string."
-                    ),
-                )
+    def __init__(self, agent_name: str = DEFAULT_AGENT_NAME, verbose: bool = False):
+        if not OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY is missing.\n"
+                "Local: add it to your .env file.\n"
+                "Streamlit Cloud: add it in App Settings → Secrets."
             )
-        except Exception:
-            pass
+        self.client     = OpenAI(api_key=OPENAI_API_KEY)
+        self.model      = OPENAI_MODEL
+        self.agent_name = agent_name
+        self.verbose    = verbose
+        self.system     = SYSTEM_PROMPT.format(agent_name=agent_name)
 
-    return tools
+    def invoke(self, user_input: str) -> str:
+        """
+        Run the agent on a user question.
+        Handles tool calls in a loop until the model gives a final answer.
+        Returns the final response string.
+        """
+        messages = [
+            {"role": "system",  "content": self.system},
+            {"role": "user",    "content": user_input},
+        ]
+
+        max_iterations = 8
+        for _ in range(max_iterations):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=TOOLS_SCHEMA,
+                tool_choice="auto",
+            )
+
+            message = response.choices[0].message
+
+            # ── Final answer — no tool calls ──────────────────────────────────
+            if not message.tool_calls:
+                return message.content or "No response generated."
+
+            # ── Tool calls — execute each one ─────────────────────────────────
+            messages.append({
+                "role":       "assistant",
+                "content":    message.content,
+                "tool_calls": [
+                    {
+                        "id":       tc.id,
+                        "type":     "function",
+                        "function": {
+                            "name":      tc.function.name,
+                            "arguments": tc.function.arguments,
+                        }
+                    }
+                    for tc in message.tool_calls
+                ]
+            })
+
+            for tc in message.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    tool_args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                if self.verbose:
+                    print(f"[Tool] {tool_name}({tool_args})")
+
+                tool_result = run_tool(tool_name, tool_args)
+
+                if self.verbose:
+                    print(f"[Result] {tool_result}")
+
+                messages.append({
+                    "role":         "tool",
+                    "tool_call_id": tc.id,
+                    "content":      str(tool_result),
+                })
+
+        return "Max iterations reached. Please try a simpler question."
 
 
-def get_prompt(agent_name: str):
-    return ChatPromptTemplate.from_messages([
-        (
-            "system",
-            f"You are {agent_name}, a professional AI-powered financial research "
-            f"assistant for AMHANi Enterprise. "
-            f"Help users with stock prices, financial analysis, market research, "
-            f"P/E ratios, investment insights, and business financial advice. "
-            f"Always be concise, accurate, and data-driven. "
-            f"Work with facts — never give vague or speculative advice. "
-            f"Format numbers clearly. Be professional but approachable."
-        ),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
+def build_agent(agent_name: str = DEFAULT_AGENT_NAME, verbose: bool = False) -> CONSULTAMHANiAgent:
+    """Build and return a CONSULTAMHANi agent instance."""
+    return CONSULTAMHANiAgent(agent_name=agent_name, verbose=verbose)
 
 
-def build_agent(agent_name: str = DEFAULT_AGENT_NAME, verbose: bool = False):
-    if not OPENAI_API_KEY:
-        raise RuntimeError(
-            "OPENAI_API_KEY is missing.\n"
-            "Local: add it to your .env file.\n"
-            "Streamlit Cloud: add it in App Settings → Secrets."
-        )
-
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL,
-        temperature=1,
-        openai_api_key=OPENAI_API_KEY,
-    )
-
-    tools  = build_tools()
-    prompt = get_prompt(agent_name)
-
-    agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=prompt)
-
-    executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        verbose=verbose,
-        handle_parsing_errors=True,
-        max_iterations=8,
-        return_intermediate_steps=False,
-    )
-
-    return executor
-
-
-# ── CLI usage ──────────────────────────────────────────────────────────────────
-def repl(executor, agent_name):
-    print(f"\n{agent_name} ready. Type your question or 'exit' to quit.\n")
+# ── CLI ────────────────────────────────────────────────────────────────────────
+def repl(agent: CONSULTAMHANiAgent):
+    print(f"\n{agent.agent_name} ready. Type your question or 'exit' to quit.\n")
     while True:
         try:
             user_input = input(">> ").strip()
@@ -109,45 +120,35 @@ def repl(executor, agent_name):
             print("Goodbye.")
             break
         try:
-            result   = executor.invoke({"input": user_input})
-            response = result.get("output", "No response generated.")
-            print(f"\n{agent_name}: {response}\n")
+            response = agent.invoke(user_input)
+            print(f"\n{agent.agent_name}: {response}\n")
         except Exception as e:
             print(f"\nError: {e}\n")
 
 
-def one_shot(executor, prompt_text):
-    result = executor.invoke({"input": prompt_text})
-    return result.get("output", "No response generated.")
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Run the CONSULTAMHANi CLI Agent")
-    parser.add_argument("--repl",    action="store_true", help="Interactive REPL mode")
+    parser = argparse.ArgumentParser(description="CONSULTAMHANi CLI Agent")
+    parser.add_argument("--repl",    action="store_true", help="Interactive chat mode")
     parser.add_argument("--ask",     type=str,            help="Ask a single question")
     parser.add_argument("--name",    type=str,            help="Override agent name")
-    parser.add_argument("--verbose", action="store_true", help="Show reasoning steps")
+    parser.add_argument("--verbose", action="store_true", help="Show tool calls")
     args = parser.parse_args()
 
     agent_name = args.name or DEFAULT_AGENT_NAME
     print(f"Loading {agent_name} (model: {OPENAI_MODEL})...")
 
     try:
-        executor = build_agent(agent_name=agent_name, verbose=args.verbose)
+        agent = build_agent(agent_name=agent_name, verbose=args.verbose)
     except RuntimeError as e:
         print(f"Startup error: {e}")
         return
 
     if args.repl:
-        repl(executor, agent_name)
+        repl(agent)
     elif args.ask:
-        print(f"\n{agent_name}: {one_shot(executor, args.ask)}")
+        print(f"\n{agent_name}: {agent.invoke(args.ask)}")
     else:
-        print("\nOptions:")
-        print("  --repl              Interactive chat")
-        print('  --ask "question"    Single question')
-        print("  --verbose           Show reasoning")
-        print("  --name NAME         Override agent name")
+        print("Use --repl for chat or --ask 'question' for a single query.")
 
 
 if __name__ == "__main__":
