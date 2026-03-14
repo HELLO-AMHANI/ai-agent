@@ -1,95 +1,133 @@
-# limiter.py — CONSULTAMHANi | Usage Rate Limiter
+# =============================================================
+# limiter.py — AMHANi ENTERPRISE · Usage Limiting
+# FILE 5 OF 7 — FULL REPLACEMENT
+# Delete everything in your existing limiter.py and paste this.
+# =============================================================
 
 import json
-import time
-from pathlib import Path
+import os
+import uuid
+from datetime import datetime, timedelta
 
-LIMIT_FILE   = Path("usage_data.json")
-FREE_LIMIT   = 5
-RESET_HOURS  = 24
+import streamlit as st
 
+# ── Config ────────────────────────────────────────────────────
+FREE_LIMIT   = 5          # free questions before paywall
+RESET_HOURS  = 24         # hours before count resets
+DATA_FILE    = "usage_data.json"
+
+
+# ── Persistence helpers ───────────────────────────────────────
 
 def _load() -> dict:
-    if LIMIT_FILE.exists():
+    if os.path.exists(DATA_FILE):
         try:
-            with open(LIMIT_FILE, "r") as f:
+            with open(DATA_FILE, "r") as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
-            return {}
+            pass
     return {}
 
 
 def _save(data: dict) -> None:
     try:
-        with open(LIMIT_FILE, "w") as f:
+        with open(DATA_FILE, "w") as f:
             json.dump(data, f, indent=2)
-    except IOError:
-        pass
+    except IOError as e:
+        print(f"[limiter] save error: {e}")
 
 
-def _now() -> float:
-    return time.time()
+# ── Visitor ID ────────────────────────────────────────────────
+
+def get_visitor_id() -> str:
+    """
+    Return a stable visitor UUID for this browser session.
+    Stored in st.session_state so it persists across Streamlit reruns
+    within the same browser tab.
+    """
+    if "visitor_id" not in st.session_state:
+        st.session_state["visitor_id"] = str(uuid.uuid4())
+    return st.session_state["visitor_id"]
 
 
-def _reset_seconds() -> float:
-    return RESET_HOURS * 3600
+# ── Usage record helpers ──────────────────────────────────────
 
-
-def get_usage(ip: str) -> dict:
+def _get_record(visitor_id: str) -> dict:
     data   = _load()
-    record = data.get(ip)
-    now    = _now()
-    if record is None:
-        return {"count": 0, "first_seen": now, "last_seen": now}
-    elapsed = now - record.get("first_seen", now)
-    if elapsed >= _reset_seconds():
-        return {"count": 0, "first_seen": now, "last_seen": now}
+    record = data.get(visitor_id, {"count": 0, "first_seen": None, "last_seen": None})
+
+    # Auto-reset if window has elapsed
+    if record.get("first_seen"):
+        first = datetime.fromisoformat(record["first_seen"])
+        if datetime.utcnow() - first > timedelta(hours=RESET_HOURS):
+            record = {"count": 0, "first_seen": None, "last_seen": None}
+
     return record
 
 
-def increment_usage(ip: str) -> int:
-    data   = _load()
-    record = get_usage(ip)
-    now    = _now()
-    record["count"]    += 1
-    record["last_seen"] = now
-    if record["count"] == 1:
-        record["first_seen"] = now
-    data[ip] = record
-    _save(data)
-    return record["count"]
-
-
-def is_limited(ip: str) -> bool:
-    return get_usage(ip)["count"] >= FREE_LIMIT
-
-
-def remaining(ip: str) -> int:
-    return max(0, FREE_LIMIT - get_usage(ip)["count"])
-
-
-def reset_ip(ip: str) -> None:
+def _save_record(visitor_id: str, record: dict) -> None:
     data = _load()
-    if ip in data:
-        del data[ip]
+    data[visitor_id] = record
+    _save(data)
+
+
+# ── Public API ────────────────────────────────────────────────
+
+def get_usage(visitor_id: str) -> int:
+    """Return number of questions used by this visitor."""
+    return _get_record(visitor_id).get("count", 0)
+
+
+def increment_usage(visitor_id: str) -> None:
+    """Increment the question count for this visitor."""
+    record = _get_record(visitor_id)
+    now    = datetime.utcnow().isoformat()
+
+    record["count"] += 1
+    record["last_seen"] = now
+    if not record.get("first_seen"):
+        record["first_seen"] = now
+
+    _save_record(visitor_id, record)
+
+
+def is_limited(visitor_id: str) -> bool:
+    """Return True if this visitor has used all free questions."""
+    return get_usage(visitor_id) >= FREE_LIMIT
+
+
+def remaining(visitor_id: str) -> int:
+    """Return number of free questions remaining for this visitor."""
+    return max(0, FREE_LIMIT - get_usage(visitor_id))
+
+
+def reset_ip(visitor_id: str) -> None:
+    """Reset usage count for a visitor (admin use)."""
+    data = _load()
+    if visitor_id in data:
+        del data[visitor_id]
         _save(data)
 
 
 def get_all_stats() -> dict:
-    data         = _load()
-    total_ips    = len(data)
-    total_q      = sum(r.get("count", 0) for r in data.values())
-    hit_paywall  = sum(1 for r in data.values() if r.get("count", 0) >= FREE_LIMIT)
+    """Return aggregated stats for the admin dashboard."""
+    data           = _load()
+    total_visitors = len(data)
+    total_q        = sum(r.get("count", 0) for r in data.values())
+    hit_paywall    = sum(1 for r in data.values() if r.get("count", 0) >= FREE_LIMIT)
+
+    # Active today
+    today = datetime.utcnow().date()
     active_today = sum(
         1 for r in data.values()
-        if _now() - r.get("last_seen", 0) < 86400
+        if r.get("last_seen") and
+        datetime.fromisoformat(r["last_seen"]).date() == today
     )
+
     return {
-        "total_visitors":  total_ips,
+        "total_visitors": total_visitors,
         "total_questions": total_q,
-        "hit_paywall":     hit_paywall,
-        "active_today":    active_today,
-        "conversion_rate": f"{(hit_paywall / total_ips * 100):.1f}%" if total_ips else "0%",
-        "avg_questions":   f"{(total_q / total_ips):.1f}" if total_ips else "0",
-        "raw":             data,
+        "hit_paywall": hit_paywall,
+        "active_today": active_today,
+        "visitors": data,
     }
