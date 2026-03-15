@@ -1,4 +1,4 @@
-python-dotenv==1.0.0
+kpython-dotenv==1.0.0
 langchain==0.2.16
 langchain-openai==0.1.25
 langchain-community==0.2.16
@@ -15,4 +15,4 @@ matplotlib
 seaborn
 openpyxl
 tabulate
-Pillow
+numpy==1.26.4

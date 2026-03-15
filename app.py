@@ -5,11 +5,9 @@
 # =============================================================
 
 import base64
-import io
 import os
 
 import streamlit as st
-from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -220,13 +218,9 @@ def _safe_rerun():
 # DEFINED HERE (top of file) so it can be called anywhere below.
 # ════════════════════════════════════════════════════════════════
 def render_response_content(content: str) -> None:
-    """
-    Render agent output.
-    - If the content contains a base64 chart, decode and display it.
-    - Otherwise render as markdown inside a styled bubble.
-    """
+    """Render agent output — text or base64 chart. No PIL required."""
     if "CHART_BASE64:" in content:
-        parts = content.split("CHART_BASE64:", 1)
+        parts      = content.split("CHART_BASE64:", 1)
         text_part  = parts[0].strip()
         chart_part = parts[1].strip()
 
@@ -235,18 +229,17 @@ def render_response_content(content: str) -> None:
                 f'<div class="agent-bubble">{text_part}</div>',
                 unsafe_allow_html=True,
             )
-        try:
-            img_bytes = base64.b64decode(chart_part)
-            image     = Image.open(io.BytesIO(img_bytes))
-            st.image(image, use_column_width=True)
-        except Exception as e:
-            st.error(f"Could not render chart: {e}")
+        # Render chart directly from base64 — no PIL needed
+        st.markdown(
+            f'<img src="data:image/png;base64,{chart_part}" '
+            f'style="width:100%;border-radius:6px;margin-top:8px;" />',
+            unsafe_allow_html=True,
+        )
     else:
         st.markdown(
             f'<div class="agent-bubble">{content}</div>',
             unsafe_allow_html=True,
         )
-
 
 # ════════════════════════════════════════════════════════════════
 # SESSION STATE INIT
