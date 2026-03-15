@@ -4,7 +4,7 @@ langchain-openai==0.1.25
 langchain-community==0.2.16
 langchain-core==0.2.40
 openai==1.40.0
-yfinance==0.2.43
+yfinance==0.2.40
 google-search-results==2.4.2
 click==8.1.7
 streamlit==1.43.0
@@ -17,5 +17,3 @@ openpyxl
 tabulate
 numpy==1.26.4
 protobuf==5.29.0
-websockets>=13.0
-
