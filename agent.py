@@ -1,15 +1,16 @@
 # agent.py — AMHANi ENTERPRISE
-# Uses LCEL — no AgentExecutor, works on all Python versions
+# Custom tool-calling loop — no AgentExecutor dependency
+# Works on Python 3.11, 3.12, 3.13, 3.14
 
 import os
+import json
 from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain.agents import create_tool_calling_agent
-from langchain.agents import AgentExecutor
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.tools import BaseTool
 from tools import amhani_tools
 
 # ── LLM ──────────────────────────────────────────────────────
@@ -18,50 +19,90 @@ llm = ChatOpenAI(
     temperature=1,
     api_key=os.getenv("OPENAI_API_KEY"),
     request_timeout=60,
+).bind_tools(amhani_tools)
+
+# ── Tool lookup map ───────────────────────────────────────────
+TOOL_MAP = {tool.name: tool for tool in amhani_tools}
+
+SYSTEM_PROMPT = (
+    "You are AMHANi, an expert AI financial consultant built by AMHANi Enterprise. "
+    "You help clients with financial planning, investment advisory, business "
+    "development, market research, data analysis, and financial calculations.\n\n"
+    "Rules:\n"
+    "- For complex multi-step requests, use plan_task first\n"
+    "- For code tasks: write AND run code in execute_python — never just describe it\n"
+    "- Work with facts and verified data only — never guesswork\n"
+    "- Use ₦ for Nigerian Naira where relevant\n"
+    "- Be transparent, concise, and professional"
 )
 
-# ── Prompt ────────────────────────────────────────────────────
-agent_prompt = ChatPromptTemplate.from_messages([
-    ("system",
-     "You are AMHANi, an expert AI financial consultant built by AMHANi Enterprise. "
-     "You help clients with financial planning, investment advisory, business "
-     "development, market research, data analysis, and financial calculations.\n\n"
-     "Rules:\n"
-     "- For complex multi-step requests, use plan_task first\n"
-     "- For code tasks: write AND run code in execute_python\n"
-     "- Work with facts and verified data only — never guesswork\n"
-     "- Use ₦ for Nigerian Naira where relevant\n"
-     "- Be transparent, concise, and professional"),
-    MessagesPlaceholder("chat_history", optional=True),
-    ("human", "{input}"),
-    MessagesPlaceholder("agent_scratchpad"),
-])
 
-# ── Agent ─────────────────────────────────────────────────────
-_agent = create_tool_calling_agent(
-    llm=llm,
-    tools=amhani_tools,
-    prompt=agent_prompt,
-)
+# ── Custom agentic loop ───────────────────────────────────────
+def _run_loop(messages: list, max_iterations: int = 10) -> dict:
+    """
+    Core agentic loop:
+    1. Send messages to LLM
+    2. If LLM calls a tool → run it → append result → loop
+    3. If LLM gives a text response → return it
+    Repeats up to max_iterations times.
+    """
+    intermediate_steps = []
 
-agent_executor = AgentExecutor(
-    agent=_agent,
-    tools=amhani_tools,
-    verbose=True,
-    max_iterations=10,
-    max_execution_time=90,
-    handle_parsing_errors=True,
-    return_intermediate_steps=True,
-)
+    for _ in range(max_iterations):
+        response = llm.invoke(messages)
 
-# ── Short-term memory (in-memory, per session) ────────────────
-# Stored as plain list — no LangChain memory class needed
-# This avoids all version-specific memory import issues
+        # No tool calls — final answer
+        if not response.tool_calls:
+            return {
+                "output": response.content,
+                "intermediate_steps": intermediate_steps,
+            }
 
+        # Process each tool call
+        messages.append(response)  # append assistant message with tool calls
+
+        for tool_call in response.tool_calls:
+            tool_name  = tool_call["name"]
+            tool_input = tool_call["args"]
+            tool_id    = tool_call["id"]
+
+            tool = TOOL_MAP.get(tool_name)
+            if tool:
+                try:
+                    # Tools expect a single string — convert dict if needed
+                    if isinstance(tool_input, dict):
+                        if len(tool_input) == 1:
+                            raw_input = str(list(tool_input.values())[0])
+                        else:
+                            raw_input = json.dumps(tool_input)
+                    else:
+                        raw_input = str(tool_input)
+
+                    result = tool.invoke(raw_input)
+                except Exception as e:
+                    result = f"Tool error: {e}"
+            else:
+                result = f"Tool '{tool_name}' not found."
+
+            intermediate_steps.append((tool_name, tool_input, result))
+
+            # Append tool result as ToolMessage
+            from langchain_core.messages import ToolMessage
+            messages.append(
+                ToolMessage(content=str(result), tool_call_id=tool_id)
+            )
+
+    return {
+        "output": "Reached maximum iterations without a final answer. Please try a simpler request.",
+        "intermediate_steps": intermediate_steps,
+    }
+
+
+# ── Memory sync ───────────────────────────────────────────────
 def sync_memory(messages: list) -> list:
     """
-    Convert Streamlit message history to LangChain message objects.
-    Returns a list of HumanMessage / AIMessage for chat_history.
+    Convert Streamlit message list to LangChain message objects.
+    Returns list of HumanMessage / AIMessage for chat history.
     """
     history = []
     for msg in messages:
@@ -72,34 +113,38 @@ def sync_memory(messages: list) -> list:
     return history
 
 
-# ── Main run function ─────────────────────────────────────────
+# ── Public run function ───────────────────────────────────────
 def run_agent(
     question: str,
     long_term_context: str = "",
     chat_history: list = None,
 ) -> dict:
     """
-    Run the agent with retry and self-correction.
-    chat_history: list of LangChain message objects from sync_memory()
+    Run the AMHANi agent with retry and self-correction.
+    chat_history: list of LangChain HumanMessage/AIMessage objects
     """
+    # Build input with long-term memory if present
     full_input = question
     if long_term_context and long_term_context.strip():
         full_input = (
             f"{long_term_context.strip()}\n\nCurrent question: {question}"
         )
 
-    history = chat_history or []
     last_error = None
 
     for attempt in range(3):
         try:
-            result = agent_executor.invoke({
-                "input": full_input,
-                "chat_history": history,
-            })
-            output = result.get("output", "")
-            if output and len(output.strip()) > 10:
+            # Build fresh message list each attempt
+            messages = [SystemMessage(content=SYSTEM_PROMPT)]
+            if chat_history:
+                messages.extend(chat_history[-10:])  # last 10 messages only
+            messages.append(HumanMessage(content=full_input))
+
+            result = _run_loop(messages)
+
+            if result.get("output") and len(result["output"].strip()) > 10:
                 return result
+
         except Exception as e:
             last_error = str(e)
             if attempt < 2:
@@ -123,21 +168,21 @@ if __name__ == "__main__":
     import click
 
     @click.command()
-    @click.option("--ask",     default=None, help="Single question")
-    @click.option("--repl",    is_flag=True, help="Interactive mode")
-    @click.option("--verbose", is_flag=True, help="Show steps")
+    @click.option("--ask",     default=None, help="Ask a single question")
+    @click.option("--repl",    is_flag=True,  help="Interactive REPL mode")
+    @click.option("--verbose", is_flag=True,  help="Show reasoning steps")
     def cli(ask, repl, verbose):
         if ask:
             result = run_agent(ask)
             print("\n── AMHANi ──────────────────────────────")
             print(result["output"])
-            if verbose:
-                for i, (action, obs) in enumerate(
-                    result.get("intermediate_steps", [])
-                ):
-                    print(f"\nStep {i+1}: {action.tool}")
-                    print(f"  Input:  {str(action.tool_input)[:200]}")
+            if verbose and result.get("intermediate_steps"):
+                print(f"\n── Reasoning ({len(result['intermediate_steps'])} steps) ──")
+                for i, (name, inp, obs) in enumerate(result["intermediate_steps"]):
+                    print(f"\nStep {i+1}: {name}")
+                    print(f"  Input:  {str(inp)[:200]}")
                     print(f"  Result: {str(obs)[:300]}")
+
         elif repl:
             print("AMHANi Agent — type 'exit' to quit\n")
             history = []
@@ -153,6 +198,6 @@ if __name__ == "__main__":
                 history.append(HumanMessage(content=q))
                 history.append(AIMessage(content=answer))
         else:
-            print("Use --ask 'question' or --repl")
+            print("Use --ask 'question' or --repl for interactive mode.")
 
     cli()
