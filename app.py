@@ -386,6 +386,10 @@ if not is_sub and is_limited(st.session_state.visitor_id):
 # ════════════════════════════════════════════════════════════════
 # WELCOME MESSAGE  (first visit)
 # ════════════════════════════════════════════════════════════════
+# ADD THIS LINE immediately before the welcome message block:
+
+st.session_state.messages = [m for m in st.session_state.messages if m.get("content", "").strip()]
+
 if not st.session_state.messages:
     greeting = (
         "Welcome back to **CONSULTAMHANi** ✦\n\n"
@@ -412,7 +416,8 @@ question = st.chat_input("Ask AMHANi anything financial...")
 
 if question:
     question = question.strip()
-    if not question:
+    if not question or len(question) < 2:
+        st.warning("Please type a question before sending.")
         st.stop()
 
     # ── Display user message ──────────────────────────────────
