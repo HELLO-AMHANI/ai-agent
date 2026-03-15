@@ -448,10 +448,18 @@ with st.spinner("AMHANi is thinking..."):
     if steps:
         label = f"🧠 Agent Reasoning — {len(steps)} step{'s' if len(steps) > 1 else ''}"
         with st.expander(label, expanded=False):
-            for i, (action, observation) in enumerate(steps):
-                st.markdown(f"**Step {i + 1} — `{action.tool}`**")
-                st.code(str(action.tool_input)[:400], language="text")
-                st.caption(f"Result: {str(observation)[:600]}")
+            for i, step in enumerate(steps):
+                if len(step) == 3:
+                    name, inp, obs = step
+                elif len(step) == 2:
+                    name = getattr(step[0], 'tool', str(step[0]))
+                    inp  = getattr(step[0], 'tool_input', '')
+                    obs  = step[1]
+                else:
+                    continue
+                st.markdown(f"**Step {i + 1} — `{name}`**")
+                st.code(str(inp)[:400], language="text")
+                st.caption(f"Result: {str(obs)[:600]}")
                 if i < len(steps) - 1:
                     st.divider()
 
