@@ -306,8 +306,7 @@ with col_email:
 with col_logout:
     if st.button("Exit", key="logout_btn"):
         logout()
-        _safe_rerun()
-
+        st.switch_page("app.py")
 st.divider()
 
 
@@ -365,7 +364,7 @@ if not is_sub and is_limited(st.session_state.visitor_id):
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("✦  Subscribe — ₦9,999 / month", use_container_width=True):
+        if st.button("✦  Subscribe —22₦9,999 / month", use_container_width=True):
             link = create_subscription_link(user_email, user_id)
             if link:
                 st.markdown(
@@ -470,5 +469,3 @@ with st.spinner("AMHANi is thinking..."):
             f"User: {question}\nAgent: {answer}",
             llm,
         )
-
-    _safe_rerun()
