@@ -101,17 +101,19 @@ def _run_loop(messages: list, max_iterations: int = 10) -> dict:
 # ── Memory sync ───────────────────────────────────────────────
 def sync_memory(messages: list) -> list:
     """
-    Convert Streamlit message list to LangChain message objects.
-    Returns list of HumanMessage / AIMessage for chat history.
+    Convert Streamlit message history to LangChain message objects.
+    Skips any message with missing or None content.
     """
     history = []
     for msg in messages:
+        content = msg.get("content") or ""
+        if not content.strip():
+            continue
         if msg.get("role") == "user":
-            history.append(HumanMessage(content=msg["content"]))
+            history.append(HumanMessage(content=content))
         elif msg.get("role") == "assistant":
-            history.append(AIMessage(content=msg["content"]))
+            history.append(AIMessage(content=content))
     return history
-
 
 # ── Public run function ───────────────────────────────────────
 def run_agent(
@@ -138,7 +140,7 @@ def run_agent(
             messages = [SystemMessage(content=SYSTEM_PROMPT)]
             if chat_history:
                 messages.extend(chat_history[-10:])  # last 10 messages only
-            messages.append(HumanMessage(content=full_input))
+            messages.append(HumanMessage(content=str(full_input) if full_input else "Hello"))
 
             result = _run_loop(messages)
 
@@ -201,3 +203,16 @@ if __name__ == "__main__":
             print("Use --ask 'question' or --repl for interactive mode.")
 
     cli()
+
+# Patched sync_memory — override the one defined above
+def sync_memory(messages: list) -> list:
+    history = []
+    for msg in messages:
+        content = msg.get("content") or ""
+        if not content.strip():
+            continue
+        if msg.get("role") == "user":
+            history.append(HumanMessage(content=content))
+        elif msg.get("role") == "assistant":
+            history.append(AIMessage(content=content))
+    return history
