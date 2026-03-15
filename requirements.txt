@@ -7,7 +7,7 @@ openai==1.40.0
 yfinance
 google-search-results==2.4.2
 click==8.1.7
-streamlit==1.35.0
+streamlit==1.43.0
 supabase==2.4.2
 requests==2.31.0
 pandas
@@ -16,3 +16,4 @@ seaborn
 openpyxl
 tabulate
 numpy==1.26.4
+protobuf==5.29.0
