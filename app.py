@@ -9,8 +9,16 @@ import os
 
 import streamlit as st
 from dotenv import load_dotenv
-
 load_dotenv()
+
+
+st.set_page_config(
+    page_title="CONSULTAMHANi",
+    page_icon="✦",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
 
 from agent import run_agent, sync_memory, llm
 from auth import (
@@ -30,17 +38,6 @@ from limiter import (
 )
 from memory_store import load_memory, extract_and_save_facts
 from payments import create_subscription_link
-
-
-# ════════════════════════════════════════════════════════════════
-# PAGE CONFIG  (must be the very first Streamlit call)
-# ════════════════════════════════════════════════════════════════
-st.set_page_config(
-    page_title="CONSULTAMHANi",
-    page_icon="✦",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -244,13 +241,15 @@ def render_response_content(content: str) -> None:
 # ════════════════════════════════════════════════════════════════
 # SESSION STATE INIT
 # ════════════════════════════════════════════════════════════════
-if "messages"      not in st.session_state:
-    st.session_state.messages      = []
-if "visitor_id"    not in st.session_state:
-    st.session_state.visitor_id    = get_visitor_id()
-if "is_subscriber" not in st.session_state:
-    st.session_state.is_subscriber = False
-
+try:
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "visitor_id" not in st.session_state:
+        st.session_state.visitor_id = str(__import__('uuid').uuid4())
+    if "is_subscriber" not in st.session_state:
+        st.session_state.is_subscriber = False
+except Exception:
+    pass
 
 # ════════════════════════════════════════════════════════════════
 # AUTH GATE — show login if not signed in
@@ -432,7 +431,16 @@ if question:
 
     # ── Sync short-term memory ────────────────────────────────
     # Pass all messages except the one we just appended
-chat_history = sync_memory(st.session_state.messages[:-1])
+
+clean_messages = [
+    m for m in st.session_state.messages[:-1]
+    if isinstance(m, dict)
+    and isinstance(m.get("content"), str)
+    and m.get("content", "").strip()
+    and m.get("role") in ("user", "assistant")
+]
+chat_history = sync_memory(clean_messages)
+
 long_term    = load_memory(user_id) if user_id else ""
 with st.spinner("AMHANi is thinking..."):
     result = run_agent(
