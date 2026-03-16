@@ -418,6 +418,8 @@ if question:
         st.warning("Please type a question before sending.")
         st.stop()
 
+    st.session_state.messages = st.session_state.messages[-2:]
+
     # ── Display user message ──────────────────────────────────
     st.markdown(
         f'<div class="user-bubble">{question}</div>',

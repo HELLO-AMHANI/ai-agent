@@ -15,7 +15,7 @@ from tools import amhani_tools
 
 # ── LLM ──────────────────────────────────────────────────────
 llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
     temperature=1,
     api_key=os.getenv("OPENAI_API_KEY"),
     request_timeout=60,
@@ -33,9 +33,11 @@ SYSTEM_PROMPT = (
     "- For code tasks: write AND run code in execute_python — never just describe it\n"
     "- Work with facts and verified data only — never guesswork\n"
     "- Use ₦ for Nigerian Naira where relevant\n"
-    "- Be transparent, concise, and professional"
+    "- Be transparent, concise, and professional\n"
+    "- IMPORTANT: Each question is independent. Never repeat or summarise "
+    "a previous answer unless the user explicitly asks you to. "
+    "Always answer exactly what the user just asked."
 )
-
 
 # ── Custom agentic loop ───────────────────────────────────────
 def _run_loop(messages: list, max_iterations: int = 10) -> dict:
@@ -139,7 +141,7 @@ def run_agent(
             # Build fresh message list each attempt
             messages = [SystemMessage(content=SYSTEM_PROMPT)]
             if chat_history:
-                messages.extend(chat_history[-10:])  # last 10 messages only
+                messages.extend(chat_history[-2:])  # last 1 exchanges only
             messages.append(HumanMessage(content=str(full_input) if full_input else "Hello"))
 
             result = _run_loop(messages)
