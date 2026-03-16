@@ -130,7 +130,8 @@ with c5:
 with c6:
     st.markdown(f'<div class="mcard"><div class="mnum">{stats["hit_paywall"]}</div><div class="mlabel">Hit Paywall</div></div>', unsafe_allow_html=True)
 with c7:
-    st.markdown(f'<div class="mcard"><div class="mnum">{stats["conversion_rate"]}</div><div class="mlabel">Paywall Rate</div></div>', unsafe_allow_html=True)
+    conversion_rate = f'{round((stats["hit_paywall"] / stats["total_visitors"]) * 100)}%' if stats["total_visitors"] > 0 else "0%"
+    st.markdown(f'<div class="mcard"><div class="mnum">{conversion_rate}</div><div class="mlabel">Paywall Rate</div></div>', unsafe_allow_html=True)
 
 
 # ── Subscriber list ───────────────────────────────────────────────────────────
@@ -159,7 +160,7 @@ else:
 # ── Visitor log ───────────────────────────────────────────────────────────────
 st.markdown('<div class="sec-label">Free Visitor Log</div>', unsafe_allow_html=True)
 
-raw = stats.get("raw", {})
+raw = stats.get("visitors", {})
 if not raw:
     st.markdown("<span style='font-size:0.8rem; color:rgba(250,250,247,0.28);'>No visitor data yet.</span>", unsafe_allow_html=True)
 else:
