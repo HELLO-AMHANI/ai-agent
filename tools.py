@@ -492,6 +492,68 @@ def plan_task(goal: str) -> str:
 # ══════════════════════════════════════════════════════════════
 # EXPORT — import this list in agent.py
 # ══════════════════════════════════════════════════════════════
+@tool
+def convert_currency(input: str) -> str:
+    """
+    Convert between currencies using live exchange rates.
+    Input format: 'amount, FROM, TO'
+    Examples: '1500, USD, NGN'  or  '50000, NGN, USD'
+    Supported: USD, NGN, GBP, EUR, JPY, CAD, AUD, CNY, ZAR, GHS, KES
+    """
+    try:
+        parts  = [p.strip() for p in input.split(",")]
+        amount = float(parts[0])
+        from_c = parts[1].upper()
+        to_c   = parts[2].upper()
+
+        # Fetch live rate via Yahoo Finance currency pair
+        import yfinance as yf
+        pair   = f"{from_c}{to_c}=X"
+        ticker = yf.Ticker(pair)
+        hist   = ticker.history(period="2d")
+
+        if hist.empty:
+            # Fallback to known approximate rates (NGN focused)
+            fallback_to_ngn = {
+                "USD": 1620, "GBP": 2050, "EUR": 1750,
+                "CAD": 1190, "AUD": 1040, "CNY": 223,
+                "ZAR": 88,   "GHS": 110,  "KES": 12.5,
+            }
+            fallback_from_ngn = {v: 1/v for v in fallback_to_ngn.values()}
+
+            if to_c == "NGN" and from_c in fallback_to_ngn:
+                rate   = fallback_to_ngn[from_c]
+                result = amount * rate
+                return (
+                    f"💱 Currency Conversion (estimated rate)\n"
+                    f"{amount:,.2f} {from_c} = ₦{result:,.2f}\n"
+                    f"Rate used: ₦{rate:,.0f} per {from_c}\n"
+                    f"⚠️ This is an approximate rate — verify with your bank."
+                )
+            elif from_c == "NGN" and to_c in fallback_to_ngn:
+                rate   = fallback_to_ngn[to_c]
+                result = amount / rate
+                return (
+                    f"💱 Currency Conversion (estimated rate)\n"
+                    f"₦{amount:,.2f} = {result:,.4f} {to_c}\n"
+                    f"Rate used: ₦{rate:,.0f} per {to_c}\n"
+                    f"⚠️ This is an approximate rate — verify with your bank."
+                )
+            else:
+                return f"Could not fetch rate for {from_c}/{to_c}. Try USD/NGN, GBP/NGN etc."
+
+        rate   = hist["Close"].iloc[-1]
+        result = amount * rate
+        return (
+            f"💱 Currency Conversion (live rate)\n"
+            f"{amount:,.2f} {from_c} = {result:,.2f} {to_c}\n"
+            f"Live rate: 1 {from_c} = {rate:,.4f} {to_c}"
+        )
+
+    except Exception as e:
+        return f"Conversion error: {e}"
+
+
 amhani_tools = [
     get_stock_price,
     calculate_pe_ratio,
@@ -501,4 +563,5 @@ amhani_tools = [
     financial_calculator,
     get_market_overview,
     plan_task,
+    convert_currency,
 ]

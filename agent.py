@@ -34,11 +34,13 @@ SYSTEM_PROMPT = (
     "- Work with facts and verified data only — never guesswork\n"
     "- Use ₦ for Nigerian Naira where relevant\n"
     "- Be transparent, concise, and professional\n"
-    "- IMPORTANT: Each question is independent. Never repeat or summarise "
-    "a previous answer unless the user explicitly asks you to. "
-    "Always answer exactly what the user just asked."
+    "- NEVER ask the user clarifying questions for simple requests — just answer\n"
+    "- For currency conversion always use convert_currency tool immediately\n"
+    "- For stock prices always use get_stock_price tool immediately\n"
+    "- For calculations always compute and return the answer directly\n"
+    "- Each question is independent — never repeat previous answers\n"
+    "- Always answer exactly what was asked, then stop"
 )
-
 # ── Custom agentic loop ───────────────────────────────────────
 def _run_loop(messages: list, max_iterations: int = 10) -> dict:
     """
