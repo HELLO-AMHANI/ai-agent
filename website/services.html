@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AMHANi ENTERPRISE — Services</title>
+  <meta name="description" content="AMHANi Enterprise services — financial planning, investment advisory, business development, CONSULTAMHANi AI agent, and general merchandise."/>
+  <link rel="stylesheet" href="styles.css"/>
+  <style>
+    /* ── SERVICES PAGE STYLES ── */
+
+    /* Hero */
+    #page-hero { background: var(--black); }
+
+    /* Services intro */
+    #services-intro { background: var(--surface); padding: 5rem 0 0; }
+    .intro-layout { display: grid; grid-template-columns: 1fr 1.4fr; gap: 5rem; align-items: center; padding-bottom: 5rem; }
+    .intro-left h2 { font-family: var(--ff-serif); font-size: clamp(2rem, 4vw, 3.2rem); font-weight: 600; line-height: 1.2; color: var(--white); margin-bottom: 1.2rem; }
+    .intro-left h2 em { font-style: italic; color: var(--gold-light); }
+    .intro-right p { font-size: 0.88rem; color: var(--muted); line-height: 1.9; font-weight: 300; margin-bottom: 1rem; }
+
+    /* Services grid */
+    #services { background: var(--surface); padding-top: 0; }
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5px; background: var(--gold-border); border: 1px solid var(--gold-border);
+    }
+    .service-card { background: var(--surface); padding: 2.6rem 2rem; position: relative; overflow: hidden; transition: background 0.3s; }
+    .service-card::after {
+      content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+      height: 2px; background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      transform: scaleX(0); transition: transform 0.4s;
+    }
+    .service-card:hover { background: var(--surface-2); }
+    .service-card:hover::after { transform: scaleX(1); }
+    .service-card.featured { background: var(--surface-2); grid-column: span 2; }
+    .service-card.featured::after { transform: scaleX(1); }
+    .s-num { font-size: 0.58rem; letter-spacing: 0.32em; color: var(--gold-dim); margin-bottom: 1rem; font-weight: 600; }
+    .s-icon { font-size: 1.5rem; color: var(--gold); margin-bottom: 1rem; opacity: 0.6; }
+    .service-card h3 { font-family: var(--ff-serif); font-size: 1.45rem; font-weight: 600; color: var(--white); margin-bottom: 0.8rem; }
+    .service-card p { font-size: 0.82rem; color: var(--muted); line-height: 1.85; font-weight: 300; margin-bottom: 1.4rem; }
+    .service-tag {
+      display: inline-block; font-size: 0.58rem; letter-spacing: 0.18em;
+      text-transform: uppercase; padding: 3px 10px; border-radius: 2px;
+      background: var(--gold-faint); border: 1px solid var(--gold-border);
+      color: var(--gold-dim); margin-right: 6px; margin-bottom: 6px;
+    }
+
+    /* Process */
+    #process { background: var(--black); }
+    .process-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; }
+    .process-steps::before {
+      content: ''; position: absolute;
+      top: 28px; left: 12.5%; right: 12.5%; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold-border), transparent);
+    }
+    .process-step { padding: 0 1.5rem 0 0; text-align: left; }
+    .step-num {
+      width: 52px; height: 52px; border-radius: 50%;
+      border: 1px solid var(--gold-border); background: var(--surface);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--ff-display); font-size: 0.85rem; color: var(--gold);
+      margin-bottom: 1.4rem; font-weight: 600; position: relative; z-index: 1;
+    }
+    .process-step h4 { font-family: var(--ff-serif); font-size: 1.1rem; font-weight: 600; color: var(--white); margin-bottom: 0.5rem; }
+    .process-step p { font-size: 0.78rem; color: var(--muted); line-height: 1.8; font-weight: 300; }
+
+    /* Testimonials */
+    #testimonials { background: var(--surface); }
+    .t-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5px; background: var(--gold-border); border: 1px solid var(--gold-border); }
+    .testimonial-card { background: var(--surface); padding: 2.5rem 2rem; transition: background 0.3s; }
+    .testimonial-card:hover { background: var(--surface-2); }
+    .testimonial-card.featured { background: var(--surface-2); }
+    .t-quote-mark { font-family: var(--ff-serif); font-size: 4rem; color: var(--gold); opacity: 0.3; line-height: 0.5; margin-bottom: 1.2rem; }
+    .testimonial-card blockquote { font-family: var(--ff-serif); font-size: 0.98rem; font-style: italic; color: rgba(250,250,247,0.72); line-height: 1.85; font-weight: 300; margin-bottom: 1.6rem; }
+    .t-author { display: flex; align-items: center; gap: 0.85rem; }
+    .t-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--gold-faint); border: 1px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-family: var(--ff-display); font-size: 0.8rem; color: var(--gold); font-weight: 600; flex-shrink: 0; }
+    .t-name { font-size: 0.72rem; font-weight: 600; color: var(--white); }
+    .t-role { font-size: 0.6rem; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 2px; }
+
+    /* CTA bottom */
+    #services-cta { background: var(--black); padding: 5rem 0; }
+    .services-cta-box {
+      text-align: center; border: 1px solid var(--gold-border);
+      border-radius: var(--radius); padding: 4rem 3rem;
+      background: var(--surface);
+      position: relative; overflow: hidden;
+    }
+    .services-cta-box::before {
+      content: ''; position: absolute;
+      width: 400px; height: 400px; top: -200px; left: 50%; transform: translateX(-50%);
+      background: radial-gradient(ellipse, rgba(201,168,76,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .services-cta-box h2 { font-family: var(--ff-display); font-size: clamp(1.6rem, 4vw, 3rem); letter-spacing: 0.12em; color: var(--gold); margin-bottom: 1rem; position: relative; }
+    .services-cta-box p { font-family: var(--ff-serif); font-size: 1.1rem; font-style: italic; color: var(--muted); margin-bottom: 2rem; position: relative; }
+
+    @media (max-width: 900px) {
+      .intro-layout { grid-template-columns: 1fr; gap: 2.5rem; }
+      .services-grid { grid-template-columns: 1fr; }
+      .service-card.featured { grid-column: span 1; }
+      .process-steps { grid-template-columns: repeat(2, 1fr); gap: 2rem; }
+      .process-steps::before { display: none; }
+      .t-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .process-steps { grid-template-columns: 1fr; }
+      .services-cta-box { padding: 2.5rem 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ░░ NAV ░░ -->
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <span class="logo-main">AMHANi</span>
+      <span class="logo-tag">Enterprise</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="services.html" class="active">Services</a>
+      <a href="contact.html">Contact</a>
+      <a href="https://YOUR-APP.streamlit.app" target="_blank" class="nav-cta">CONSULTAMHANi</a>
+    </div>
+    <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+  </div>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="index.html"    class="mobile-link">Home</a>
+    <a href="services.html" class="mobile-link active">Services</a>
+    <a href="contact.html"  class="mobile-link">Contact</a>
+    <a href="https://YOUR-APP.streamlit.app" target="_blank" class="mobile-link mobile-cta">CONSULTAMHANi</a>
+  </div>
+</nav>
+
+<!-- ░░ PAGE HERO ░░ -->
+<section id="page-hero" class="page-hero">
+  <div class="grid-bg"></div>
+  <div class="page-hero-glow"></div>
+  <div class="container">
+    <p class="page-hero-label reveal">What We Offer</p>
+    <h1 class="page-hero-title reveal d1">Services</h1>
+    <p class="page-hero-sub reveal d2">
+      Every service grounded in data, delivered with transparency,
+      and built entirely around you.
+    </p>
+  </div>
+</section>
+
+<!-- ░░ INTRO ░░ -->
+<section id="services-intro">
+  <div class="container">
+    <div class="intro-layout">
+      <div class="intro-left">
+        <p class="eyebrow reveal">The AMHANi Difference</p>
+        <h2 class="reveal d1">
+          Expert advice that <em>actually works</em> — because we use facts.
+        </h2>
+      </div>
+      <div class="intro-right">
+        <p class="reveal d1">People still struggle with financial decisions and end up making costly mistakes — or starting well but falling short because they lacked proper expert guidance. AMHANi Enterprise exists to close that gap.</p>
+        <p class="reveal d2">We combine human expertise with AI-powered tools to deliver consulting that is fast, accurate, and always grounded in verified data. Whether you are an individual building wealth or a business seeking growth — we are the partner you never had.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ░░ SERVICES GRID ░░ -->
+<section id="services">
+  <div class="container">
+    <div class="services-grid">
+
+      <div class="service-card featured">
+        <div class="s-num">01</div>
+        <div class="s-icon">◈</div>
+        <h3>CONSULTAMHANi</h3>
+        <p>Our AI-powered financial agent — available around the clock to handle your financial research, market analysis, stock data, and advisory questions whenever you need it, even when physical consulting isn't possible. Limited daily consultations available. Subscribe for unlimited access.</p>
+        <div>
+          <span class="service-tag">AI Agent</span>
+          <span class="service-tag">24/7</span>
+          <span class="service-tag">Real-time Data</span>
+          <span class="service-tag">Stock Charts</span>
+        </div>
+        <a href="https://YOUR-APP.streamlit.app" target="_blank" class="btn-primary" style="margin-top:1.5rem;">Start Consulting ✦</a>
+      </div>
+
+      <div class="service-card">
+        <div class="s-num">02</div>
+        <div class="s-icon">◇</div>
+        <h3>Financial Planning</h3>
+        <p>Structured, expert-guided financial plans built on real data. We help you create a roadmap that doesn't just start strong — it finishes stronger. Personal budgets, savings plans, and financial goal mapping.</p>
+        <div>
+          <span class="service-tag">Personal</span>
+          <span class="service-tag">Business</span>
+        </div>
+      </div>
+
+      <div class="service-card">
+        <div class="s-num">03</div>
+        <div class="s-icon">△</div>
+        <h3>Investment Advisory</h3>
+        <p>Evidence-based investment guidance. We analyse the numbers, assess the risk, and give you clear direction — no speculation, no guesswork, just informed decisions backed by real market data.</p>
+        <div>
+          <span class="service-tag">Stocks</span>
+          <span class="service-tag">Portfolio</span>
+          <span class="service-tag">Risk Analysis</span>
+        </div>
+      </div>
+
+      <div class="service-card">
+        <div class="s-num">04</div>
+        <div class="s-icon">○</div>
+        <h3>Business Development</h3>
+        <p>From concept to growth — strategic financial consulting to help businesses build correctly from the ground up. Financial modelling, cashflow planning, and scalable growth strategy.</p>
+        <div>
+          <span class="service-tag">Startups</span>
+          <span class="service-tag">SMEs</span>
+          <span class="service-tag">Strategy</span>
+        </div>
+      </div>
+
+      <div class="service-card">
+        <div class="s-num">05</div>
+        <div class="s-icon">▷</div>
+        <h3>General Merchandise</h3>
+        <p>Physical buy and sell services managed through AMHANi Enterprise. Quality products, transparent transactions, and trusted business conduct. Enquire for current availability.</p>
+        <div>
+          <span class="service-tag">Buy & Sell</span>
+          <span class="service-tag">Trusted</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ░░ PROCESS ░░ -->
+<section id="process">
+  <div class="container">
+    <div class="section-header">
+      <p class="eyebrow reveal">How It Works</p>
+      <h2 class="section-title reveal d1">Our Process</h2>
+    </div>
+    <div class="process-steps">
+      <div class="process-step reveal">
+        <div class="step-num">01</div>
+        <h4>Understand</h4>
+        <p>We start by understanding your specific financial situation, goals, and constraints — no generic templates.</p>
+      </div>
+      <div class="process-step reveal d1">
+        <div class="step-num">02</div>
+        <h4>Research</h4>
+        <p>We gather verified data, market information, and relevant financials — always facts over assumptions.</p>
+      </div>
+      <div class="process-step reveal d2">
+        <div class="step-num">03</div>
+        <h4>Analyse</h4>
+        <p>Our tools and expertise combine to produce clear analysis with honest assessments and measurable metrics.</p>
+      </div>
+      <div class="process-step reveal d3">
+        <div class="step-num">04</div>
+        <h4>Advise</h4>
+        <p>You receive a clear, transparent recommendation — and the reasoning behind every decision we make.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ░░ TESTIMONIALS ░░ -->
+<section id="testimonials">
+  <div class="container">
+    <div class="section-header">
+      <p class="eyebrow reveal">Client Voices</p>
+      <h2 class="section-title reveal d1">What They Say</h2>
+    </div>
+    <div class="t-grid">
+      <div class="testimonial-card">
+        <div class="t-quote-mark">"</div>
+        <blockquote>AMHANi gave me a financial plan that actually made sense. Not generic advice — real strategy built around my situation.</blockquote>
+        <div class="t-author">
+          <div class="t-avatar">C</div>
+          <div>
+            <div class="t-name">Client · Lagos</div>
+            <div class="t-role">Business Owner</div>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card featured">
+        <div class="t-quote-mark">"</div>
+        <blockquote>CONSULTAMHANi answered my investment questions at midnight when no advisor was available. The data it pulled was accurate and the analysis was sharp. Exactly what I needed.</blockquote>
+        <div class="t-author">
+          <div class="t-avatar">A</div>
+          <div>
+            <div class="t-name">Client · Abuja</div>
+            <div class="t-role">Investor</div>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card">
+        <div class="t-quote-mark">"</div>
+        <blockquote>What I respect most is the transparency. They told me things I didn't want to hear — and it saved my business from a bad investment decision.</blockquote>
+        <div class="t-author">
+          <div class="t-avatar">M</div>
+          <div>
+            <div class="t-name">Client · Port Harcourt</div>
+            <div class="t-role">Entrepreneur</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ░░ SERVICES CTA ░░ -->
+<section id="services-cta">
+  <div class="container">
+    <div class="services-cta-box reveal">
+      <h2>CONSULTAMHANi</h2>
+      <p>Limited daily consultations available. Start yours now — no appointment needed.</p>
+      <a href="https://YOUR-APP.streamlit.app" target="_blank" class="btn-primary large">Start Free Consultation ✦</a>
+    </div>
+  </div>
+</section>
+
+<!-- ░░ FOOTER ░░ -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand-col">
+        <div class="footer-wordmark">AMHANi</div>
+        <div class="footer-enterprise">Enterprise</div>
+        <p class="footer-desc">Financial consulting and advisory. Data-driven. Transparent. Built for you.</p>
+        <a href="https://instagram.com/amhanienterprise" target="_blank" class="footer-ig">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+          amhanienterprise
+        </a>
+      </div>
+      <div>
+        <div class="footer-col-title">Pages</div>
+        <div class="footer-col">
+          <a href="index.html">Home</a>
+          <a href="services.html">Services</a>
+          <a href="contact.html">Contact</a>
+          <a href="https://YOUR-APP.streamlit.app" target="_blank">CONSULTAMHANi</a>
+        </div>
+      </div>
+      <div>
+        <div class="footer-col-title">Services</div>
+        <div class="footer-col">
+          <a href="services.html">Financial Planning</a>
+          <a href="services.html">Investment Advisory</a>
+          <a href="services.html">Business Development</a>
+          <a href="services.html">General Merchandise</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span class="footer-copy">© 2025 AMHANi Enterprise. All rights reserved.</span>
+      <span class="footer-hashtag">#CONSULTAMHANi</span>
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
