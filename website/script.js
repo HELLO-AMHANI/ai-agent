@@ -93,7 +93,7 @@ if (glow) {
 // 3. Replace 'YOUR_FORM_ID' below with your actual form ID
 // 4. That's it — all submissions go straight to your email
 
-const FORMSPREE_ID = 'YOUR_FORM_ID'; // ← replace this
+const FORMSPREE_ID = 'xzdjnlkg'; // ← replace this
 
 const contactForm = document.getElementById('contactForm');
 if (contactForm) {
