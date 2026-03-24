@@ -3,151 +3,108 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AMHANi ENTERPRISE — Home</title>
-  <meta name="description" content="AMHANi Enterprise — data-driven financial consulting and advisory. We work with facts, not rule of thumb."/>
+  <title>AMHANi ENTERPRISE — Contact</title>
+  <meta name="description" content="Get in touch with AMHANi Enterprise for financial consulting, advisory sessions, and general enquiries."/>
   <link rel="stylesheet" href="styles.css"/>
   <style>
-    /* ── HOME-SPECIFIC STYLES ── */
+    /* ── CONTACT PAGE STYLES ── */
 
-    /* Hero */
-    #hero {
-      min-height: 100vh; display: flex; align-items: center;
-      padding-top: var(--nav-h); position: relative; overflow: hidden;
-    }
-    .hero-bg { position: absolute; inset: 0; }
-    .hero-grid {
-      position: absolute; inset: 0;
-      background-image:
-        linear-gradient(rgba(201,168,76,0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(201,168,76,0.035) 1px, transparent 1px);
-      background-size: 62px 62px;
-    }
-    .hero-glow {
-      position: absolute; width: 750px; height: 750px;
-      top: -260px; right: -180px;
-      background: radial-gradient(ellipse, rgba(201,168,76,0.07) 0%, transparent 68%);
-      border-radius: 50%; transition: transform 0.8s ease;
-    }
-    .hero-content { position: relative; z-index: 1; max-width: 820px; padding: 5rem 2rem; }
-    .hero-eyebrow {
-      font-size: 0.62rem; letter-spacing: 0.44em; text-transform: uppercase;
-      color: var(--gold-dim); font-weight: 600; margin-bottom: 1.5rem;
-      display: flex; align-items: center; gap: 1rem;
-    }
-    .hero-eyebrow::before { content: ''; width: 30px; height: 1px; background: var(--gold-dim); display: block; }
-    .wm-amhani {
-      display: block; font-family: var(--ff-display);
-      font-size: clamp(4rem, 10vw, 8.5rem);
-      font-weight: 700; letter-spacing: 0.1em; line-height: 0.88;
-      background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 42%, var(--gold-dim) 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .wm-enterprise {
-      display: block; font-family: var(--ff-sans);
-      font-size: clamp(0.85rem, 1.8vw, 1.2rem);
-      font-weight: 300; letter-spacing: 0.58em; color: var(--muted);
-      text-transform: uppercase; margin-top: 0.4rem;
-    }
-    .hero-tagline {
-      font-family: var(--ff-serif); font-size: clamp(1.1rem, 2.5vw, 1.65rem);
-      font-weight: 300; color: rgba(250,250,247,0.65);
-      line-height: 1.72; margin: 1.8rem 0 2.5rem;
-    }
-    .hero-tagline em { font-style: italic; color: var(--gold-light); }
-    .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 4rem; }
-    .hero-stats { display: flex; align-items: center; gap: 2.5rem; flex-wrap: wrap; }
-    .stat-num { font-family: var(--ff-serif); font-size: 2.1rem; font-weight: 600; color: var(--gold); line-height: 1; }
-    .stat-label { font-size: 0.58rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); margin-top: 3px; }
-    .stat-sep { width: 1px; height: 38px; background: var(--gold-border); }
+    #page-hero { background: var(--black); }
 
-    .hero-scroll {
-      position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
-      display: flex; flex-direction: column; align-items: center; gap: 0.5rem; z-index: 1;
-    }
-    .hero-scroll span { font-size: 0.52rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--dim); }
-    .scroll-line { width: 1px; height: 44px; background: linear-gradient(to bottom, var(--gold-dim), transparent); animation: pulse 2s ease infinite; }
-    @keyframes pulse { 0%,100%{ opacity:0.3; } 50%{ opacity:1; } }
+    /* Contact layout */
+    #contact-main { background: var(--surface); }
+    .contact-layout { display: grid; grid-template-columns: 1fr 1.6fr; gap: 6rem; align-items: start; }
 
-    /* About */
-    #about { background: var(--surface); }
-    .about-layout { display: grid; grid-template-columns: 1fr 1.6fr; gap: 6rem; align-items: center; }
-    .emblem-wrap { display: flex; justify-content: center; }
-    .emblem {
-      position: relative; width: 240px; height: 240px;
+    /* Info side */
+    .contact-info-title { font-family: var(--ff-serif); font-size: 1.8rem; font-weight: 600; color: var(--white); margin-bottom: 0.8rem; }
+    .contact-info-sub { font-size: 0.85rem; color: var(--muted); line-height: 1.85; font-weight: 300; margin-bottom: 3rem; }
+
+    .contact-item { display: flex; align-items: flex-start; gap: 1.1rem; margin-bottom: 2rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(201,168,76,0.08); }
+    .contact-item:last-of-type { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .contact-item.placeholder { opacity: 0.45; }
+    .c-icon {
+      width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+      background: var(--gold-faint); border: 1px solid var(--gold-border);
       display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; color: var(--gold); margin-top: 2px;
     }
-    .emblem-ring {
-      position: absolute; border-radius: 50%;
-      border: 1px solid rgba(201,168,76,0.22);
-    }
-    .emblem-ring.r1 { width: 100%; height: 100%; animation: spin 35s linear infinite; }
-    .emblem-ring.r2 { width: 75%; height: 75%; border-style: dashed; animation: spin 22s linear infinite reverse; }
-    .emblem-ring.r3 { width: 48%; height: 48%; animation: spin 15s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .emblem-letter {
-      font-family: var(--ff-display); font-size: 4.5rem; font-weight: 700; z-index: 1;
-      background: linear-gradient(135deg, var(--gold-light), var(--gold));
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .about-body { font-size: 0.87rem; color: var(--muted); line-height: 1.92; font-weight: 300; margin-bottom: 1.2rem; }
-    .pillars { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-top: 2rem; }
-    .pillar {
-      display: flex; align-items: center; gap: 0.6rem;
-      padding: 0.72rem 1rem; border: 1px solid var(--gold-border); border-radius: var(--radius);
-      font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
-      color: var(--muted); font-weight: 600; transition: border-color 0.25s, color 0.25s;
-    }
-    .pillar:hover { border-color: var(--gold); color: var(--gold); }
-    .pillar-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
+    .c-label { font-size: 0.56rem; letter-spacing: 0.26em; text-transform: uppercase; color: var(--gold-dim); margin-bottom: 0.3rem; font-weight: 600; }
+    .c-value { font-size: 0.88rem; color: var(--white); transition: color 0.2s; }
+    a.c-value:hover { color: var(--gold); }
+    .c-value.placeholder-text { color: var(--dim); font-style: italic; font-size: 0.8rem; }
+    .c-note { font-size: 0.7rem; color: var(--dim); margin-top: 3px; }
 
-    /* Mission */
-    #mission { background: var(--black); }
-    .mission-quote {
-      font-family: var(--ff-serif); font-size: clamp(1.3rem, 3vw, 2.1rem);
-      font-weight: 300; font-style: italic; color: var(--off-white);
-      line-height: 1.72; text-align: center; max-width: 860px;
-      margin: 0 auto 5rem; position: relative; padding: 2.5rem 3.5rem;
+    /* Agent prompt */
+    .contact-agent-box {
+      margin-top: 3rem; padding: 1.8rem;
+      background: var(--gold-faint); border: 1px solid var(--gold-border);
+      border-radius: var(--radius);
     }
-    .mission-quote::before,
-    .mission-quote::after {
-      content: ''; position: absolute;
-      width: 44px; height: 44px; border-color: var(--gold-dim); border-style: solid;
-    }
-    .mission-quote::before { top: 0; left: 0; border-width: 1px 0 0 1px; }
-    .mission-quote::after  { bottom: 0; right: 0; border-width: 0 1px 1px 0; }
+    .contact-agent-box p { font-family: var(--ff-serif); font-size: 1rem; font-style: italic; color: var(--muted); margin-bottom: 1rem; line-height: 1.7; }
 
-    .values-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5px; background: var(--gold-border); border: 1px solid var(--gold-border); }
-    .value-card { background: var(--surface); padding: 2rem 1.6rem; transition: background 0.3s; }
-    .value-card:hover { background: var(--surface-2); }
-    .value-icon { font-size: 0.9rem; color: var(--gold); margin-bottom: 1rem; opacity: 0.55; display: block; }
-    .value-card h4 { font-family: var(--ff-serif); font-size: 1.1rem; font-weight: 600; color: var(--white); margin-bottom: 0.65rem; }
-    .value-card p { font-size: 0.78rem; color: var(--muted); line-height: 1.82; font-weight: 300; }
-
-    /* CTA strip */
-    #cta-strip { background: var(--surface); padding: 4rem 0; }
-    .cta-strip-inner {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 2rem; flex-wrap: wrap;
-      border: 1px solid var(--gold-border); border-radius: var(--radius);
-      padding: 2.5rem 3rem;
-      background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-3) 100%);
+    /* Form side */
+    .contact-form-box {
+      background: var(--surface-2); border: 1px solid var(--gold-border);
+      border-radius: var(--radius); padding: 2.8rem 2.5rem;
     }
-    .cta-strip-text h3 { font-family: var(--ff-serif); font-size: 1.8rem; font-weight: 600; color: var(--white); margin-bottom: 0.4rem; }
-    .cta-strip-text p { font-size: 0.82rem; color: var(--muted); }
+    .form-title { font-family: var(--ff-serif); font-size: 1.5rem; font-weight: 600; color: var(--white); margin-bottom: 0.5rem; }
+    .form-sub { font-size: 0.78rem; color: var(--muted); margin-bottom: 2rem; font-weight: 300; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    /* Feedback messages */
+    .form-success {
+      display: none; background: rgba(78,160,100,0.1); border: 1px solid rgba(78,160,100,0.3);
+      border-radius: var(--radius); padding: 1rem 1.2rem; margin-bottom: 1.2rem;
+      font-size: 0.82rem; color: #7dd89a;
+    }
+    .form-error {
+      display: none; background: rgba(201,76,76,0.1); border: 1px solid rgba(201,76,76,0.25);
+      border-radius: var(--radius); padding: 1rem 1.2rem; margin-bottom: 1.2rem;
+      font-size: 0.82rem; color: #e89a9a;
+    }
+    .submit-btn {
+      width: 100%; padding: 0.9rem; cursor: pointer;
+      background: linear-gradient(135deg, var(--gold-light), var(--gold), var(--gold-dim));
+      color: var(--black); font-family: var(--ff-sans); font-size: 0.72rem;
+      font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+      border: none; border-radius: var(--radius);
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 18px rgba(201,168,76,0.18);
+    }
+    .submit-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(201,168,76,0.28); }
+    .submit-btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+    /* Note under form */
+    .form-privacy { font-size: 0.62rem; color: var(--dim); text-align: center; margin-top: 1rem; }
+
+    /* Map placeholder */
+    #location { background: var(--black); padding: 5rem 0; }
+    .location-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
+    .location-text h3 { font-family: var(--ff-serif); font-size: 2rem; font-weight: 600; color: var(--white); margin-bottom: 1rem; }
+    .location-text p { font-size: 0.86rem; color: var(--muted); line-height: 1.85; font-weight: 300; margin-bottom: 1.5rem; }
+    .location-tags { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+    .location-tag {
+      font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase;
+      padding: 0.4rem 0.9rem; border: 1px solid var(--gold-border); border-radius: 2px;
+      color: var(--gold-dim); font-weight: 600;
+    }
+    .location-visual {
+      background: var(--surface); border: 1px solid var(--gold-border);
+      border-radius: var(--radius); padding: 3rem;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 260px; text-align: center; gap: 1rem;
+    }
+    .location-pin { font-size: 2rem; color: var(--gold); opacity: 0.55; }
+    .location-city { font-family: var(--ff-display); font-size: 1.4rem; letter-spacing: 0.2em; color: var(--gold); }
+    .location-country { font-size: 0.65rem; letter-spacing: 0.3em; color: var(--muted); text-transform: uppercase; }
 
     @media (max-width: 900px) {
-      .about-layout { grid-template-columns: 1fr; gap: 3rem; }
-      .emblem-wrap { display: none; }
-      .pillars { grid-template-columns: 1fr; }
+      .contact-layout { grid-template-columns: 1fr; gap: 3rem; }
+      .location-inner { grid-template-columns: 1fr; gap: 2.5rem; }
+      .form-row { grid-template-columns: 1fr; }
     }
-    @media (max-width: 700px) {
-      .values-grid { grid-template-columns: 1fr; }
-      .hero-stats { gap: 1.5rem; }
-      .mission-quote { padding: 1.5rem; }
-      .cta-strip-inner { flex-direction: column; text-align: center; padding: 2rem 1.5rem; }
-    }
-    @media (max-width: 480px) {
-      .hero-actions { flex-direction: column; }
+    @media (max-width: 600px) {
+      .contact-form-box { padding: 2rem 1.5rem; }
     }
   </style>
 </head>
@@ -161,161 +118,170 @@
       <span class="logo-tag">Enterprise</span>
     </a>
     <div class="nav-links">
-      <a href="index.html"    class="active">Home</a>
+      <a href="index.html">Home</a>
       <a href="services.html">Services</a>
-      <a href="contact.html" >Contact</a>
+      <a href="contact.html" class="active">Contact</a>
       <a href="https://consultamhani.streamlit.app" target="_blank" class="nav-cta">CONSULTAMHANi</a>
     </div>
     <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
   </div>
   <div class="mobile-menu" id="mobileMenu">
-    <a href="index.html"    class="mobile-link active">Home</a>
+    <a href="index.html"    class="mobile-link">Home</a>
     <a href="services.html" class="mobile-link">Services</a>
-    <a href="contact.html"  class="mobile-link">Contact</a>
+    <a href="contact.html"  class="mobile-link active">Contact</a>
     <a href="https://consultamhani.streamlit.app" target="_blank" class="mobile-link mobile-cta">CONSULTAMHANi</a>
   </div>
 </nav>
 
-<!-- ░░ HERO ░░ -->
-<section id="hero">
-  <div class="hero-bg">
-    <div class="hero-grid"></div>
-    <div class="hero-glow"></div>
-  </div>
-  <div class="hero-content container">
-    <p class="hero-eyebrow reveal">Financial Consulting & Advisory</p>
-    <div class="reveal d1">
-      <span class="wm-amhani">AMHANi</span>
-      <span class="wm-enterprise">Enterprise</span>
-    </div>
-    <p class="hero-tagline reveal d2">
-      We work with facts, not rule of thumb.<br/>
-      <em>Expert advice that keeps you standing.</em>
-    </p>
-    <div class="hero-actions reveal d3">
-      <a href="https://consultamhani.streamlit.app" target="_blank" class="btn-primary large">CONSULTAMHANi ✦</a>
-      <a href="services.html" class="btn-ghost">Our Services</a>
-    </div>
-    <div class="hero-stats reveal d4">
-      <div>
-        <div class="stat-num">5+</div>
-        <div class="stat-label">Services</div>
-      </div>
-      <div class="stat-sep"></div>
-      <div>
-        <div class="stat-num">24/7</div>
-        <div class="stat-label">AI Consulting</div>
-      </div>
-      <div class="stat-sep"></div>
-      <div>
-        <div class="stat-num">100%</div>
-        <div class="stat-label">Data Driven</div>
-      </div>
-    </div>
-  </div>
-  <div class="hero-scroll">
-    <span>Scroll</span>
-    <div class="scroll-line"></div>
-  </div>
-</section>
-
-<!-- ░░ MARQUEE ░░ -->
-<div class="marquee-strip">
-  <div class="marquee-track">
-    <span>Financial Planning</span><span class="gem">✦</span>
-    <span>Investment Advisory</span><span class="gem">✦</span>
-    <span>Business Development</span><span class="gem">✦</span>
-    <span>General Merchandise</span><span class="gem">✦</span>
-    <span>CONSULTAMHANi</span><span class="gem">✦</span>
-    <span>Data-Driven Consulting</span><span class="gem">✦</span>
-    <span>Expert Advisory</span><span class="gem">✦</span>
-    <span>Financial Planning</span><span class="gem">✦</span>
-    <span>Investment Advisory</span><span class="gem">✦</span>
-    <span>Business Development</span><span class="gem">✦</span>
-    <span>General Merchandise</span><span class="gem">✦</span>
-    <span>CONSULTAMHANi</span><span class="gem">✦</span>
-    <span>Data-Driven Consulting</span><span class="gem">✦</span>
-    <span>Expert Advisory</span><span class="gem">✦</span>
-  </div>
-</div>
-
-<!-- ░░ ABOUT ░░ -->
-<section id="about">
-  <div class="container">
-    <div class="about-layout">
-      <div class="emblem-wrap">
-        <div class="emblem">
-          <div class="emblem-ring r1"></div>
-          <div class="emblem-ring r2"></div>
-          <div class="emblem-ring r3"></div>
-          <span class="emblem-letter">A</span>
-        </div>
-      </div>
-      <div>
-        <p class="eyebrow reveal">Who We Are</p>
-        <h2 class="section-title reveal d1">About AMHANi Enterprise</h2>
-        <p class="about-body reveal d2">
-          AMHANi Enterprise is a financial consulting and advisory firm built on one conviction — that people deserve expert financial guidance, not guesswork.
-        </p>
-        <p class="about-body reveal d2">
-          Too many individuals start their financial journey strong, only to fall short because they lacked the right expert by their side. We saw this pattern repeat — and decided to fix it. We work with facts, verified data, and real analysis.
-        </p>
-        <p class="about-body reveal d2">
-          From financial planning and investment advisory to business development and general merchandise — AMHANi Enterprise is the financial partner you never had.
-        </p>
-        <div class="pillars reveal d3">
-          <div class="pillar"><div class="pillar-dot"></div>Data Driven</div>
-          <div class="pillar"><div class="pillar-dot"></div>Transparent</div>
-          <div class="pillar"><div class="pillar-dot"></div>Client First</div>
-          <div class="pillar"><div class="pillar-dot"></div>Quality Focused</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ░░ MISSION ░░ -->
-<section id="mission">
+<!-- ░░ PAGE HERO ░░ -->
+<section id="page-hero" class="page-hero">
   <div class="grid-bg"></div>
+  <div class="page-hero-glow"></div>
   <div class="container">
-    <p class="eyebrow center reveal">Our Mission</p>
-    <blockquote class="mission-quote reveal d1">
-      "We hold our customers in heart — with esteem service, radical transparency, and an unwavering commitment to quality. Every decision at AMHANi Enterprise is data-driven, because your financial future deserves facts — not feelings."
-    </blockquote>
-    <div class="values-grid">
-      <div class="value-card">
-        <span class="value-icon">◈</span>
-        <h4>Esteem Customer Service</h4>
-        <p>Every client is treated with respect, urgency, and genuine care. You are not a number — you are the reason AMHANi exists.</p>
+    <p class="page-hero-label reveal">Get In Touch</p>
+    <h1 class="page-hero-title reveal d1">Contact</h1>
+    <p class="page-hero-sub reveal d2">
+      Reach out for physical consulting, advisory sessions, general enquiries, or anything else we respond personally.
+    </p>
+  </div>
+</section>
+
+<!-- ░░ CONTACT MAIN ░░ -->
+<section id="contact-main">
+  <div class="container">
+    <div class="contact-layout">
+
+      <!-- Info -->
+      <div>
+        <h2 class="contact-info-title reveal">Let's talk.</h2>
+        <p class="contact-info-sub reveal d1">
+          Whether you have a financial question, want to explore a service, or simply want to know more about AMHANi Enterprise we are here.
+        </p>
+
+        <!-- Instagram -->
+        <div class="contact-item reveal d1">
+          <div class="c-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <div>
+            <div class="c-label">Instagram</div>
+            <a href="https://instagram.com/amhanienterprise" target="_blank" class="c-value">@amhanienterprise</a>
+            <p class="c-note">DMs open for enquiries</p>
+          </div>
+        </div>
+
+        <!-- Email — placeholder until added -->
+        <div class="contact-item placeholder reveal d2">
+          <div class="c-icon">✉</div>
+          <div>
+            <div class="c-label">Email</div>
+            <!-- EDIT: replace with your real email when ready -->
+            <span class="c-value placeholder-text">Coming soon</span>
+            <p class="c-note">Use the form below in the meantime</p>
+          </div>
+        </div>
+
+        <!-- Phone — placeholder -->
+        <div class="contact-item placeholder reveal d2">
+          <div class="c-icon">☎</div>
+          <div>
+            <div class="c-label">Phone / WhatsApp</div>
+            <!-- EDIT: replace with your number when ready -->
+            <span class="c-value placeholder-text">Coming soon</span>
+          </div>
+        </div>
+
+        <!-- Immediate help -->
+        <div class="contact-agent-box reveal d3">
+          <p>Need immediate financial guidance right now?</p>
+          <a href="https://consultamhani.streamlit.app" target="_blank" class="btn-primary">CONSULTAMHANi ✦</a>
+        </div>
       </div>
-      <div class="value-card">
-        <span class="value-icon">◈</span>
-        <h4>Data Over Guesswork</h4>
-        <p>We work with facts, metrics, and verified information. Every recommendation is backed by evidence — never rule of thumb.</p>
+
+      <!-- Form -->
+      <div class="contact-form-box reveal d1">
+        <h3 class="form-title">Send a Message</h3>
+        <p class="form-sub">Fill this in and we will get back to you directly. All messages go straight to AMHANi.</p>
+
+        <!-- Success / error banners -->
+        <div class="form-success" id="formSuccess">
+          ✦ &nbsp; Message received — we'll get back to you soon.
+        </div>
+        <div class="form-error" id="formError">
+          Something went wrong. Please try again or reach out on Instagram.
+        </div>
+
+        <!-- 
+          HOW TO CONNECT THIS FORM TO YOUR EMAIL:
+          1. Go to https://formspree.io — sign up free (no credit card)
+          2. Click "New Form" → give it a name → copy the Form ID
+          3. Open script.js → find FORMSPREE_ID = 'YOUR_FORM_ID'
+          4. Replace YOUR_FORM_ID with your actual ID e.g. 'xpwzabcd'
+          5. Done — every submission lands in your inbox instantly
+        -->
+        <form id="contactForm" novalidate>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="fname">First Name</label>
+              <input type="text" id="fname" name="first_name" placeholder="First name" required/>
+            </div>
+            <div class="form-group">
+              <label for="lname">Last Name</label>
+              <input type="text" id="lname" name="last_name" placeholder="Last name"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" placeholder="you@example.com" required/>
+          </div>
+          <div class="form-group">
+            <label for="service">Service Interest</label>
+            <select id="service" name="service">
+              <option value="">Select a service...</option>
+              <option>Financial Planning</option>
+              <option>Investment Advisory</option>
+              <option>Business Development</option>
+              <option>Physical Advisory & Consulting</option>
+              <option>General Merchandise</option>
+              <option>CONSULTAMHANi Subscription</option>
+              <option>General Enquiry</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="message">Message</label>
+            <textarea id="message" name="message" placeholder="Tell us what you need..." rows="5" required></textarea>
+          </div>
+          <!-- Hidden field — helps identify source -->
+          <input type="hidden" name="_subject" value="New AMHANi Enterprise Enquiry"/>
+          <button type="submit" class="submit-btn">Send Message ✦</button>
+        </form>
+        <p class="form-privacy">Your information is kept private and never shared with third parties.</p>
       </div>
-      <div class="value-card">
-        <span class="value-icon">◈</span>
-        <h4>Full Transparency</h4>
-        <p>No hidden agendas. No vague advice. AMHANi operates with complete openness in every consultation and transaction.</p>
-      </div>
-      <div class="value-card">
-        <span class="value-icon">◈</span>
-        <h4>Uncompromising Quality</h4>
-        <p>Whether financial planning, an advisory session, or merchandise — the AMHANi standard is quality, every single time.</p>
-      </div>
+
     </div>
   </div>
 </section>
 
-<!-- ░░ CTA STRIP ░░ -->
-<section id="cta-strip">
+<!-- ░░ LOCATION ░░ -->
+<section id="location">
   <div class="container">
-    <div class="cta-strip-inner reveal">
-      <div class="cta-strip-text">
-        <h3>Ready to consult with AMHANi?</h3>
-        <p>Limited daily consultations available — start yours now. No appointment needed.</p>
+    <div class="location-inner">
+      <div class="location-text reveal">
+        <p class="eyebrow">Where We Are</p>
+        <h3>Based in Nigeria.<br/>Consulting everywhere.</h3>
+        <p>AMHANi Enterprise is Nigeria-based, serving clients locally and internationally. Our AI agent CONSULTAMHANi is available 24/7 regardless of your location.</p>
+        <div class="location-tags">
+          <span class="location-tag">Lagos</span>
+          <span class="location-tag">Nigeria</span>
+          <span class="location-tag">Remote</span>
+          <span class="location-tag">International</span>
+        </div>
       </div>
-      <a href="https://consultamhani.streamlit.app" target="_blank" class="btn-primary large">Start CONSULTAMHANi ✦</a>
+      <div class="location-visual reveal d1">
+        <div class="location-pin">◉</div>
+        <div class="location-city">LAGOS</div>
+        <div class="location-country">Nigeria · West Africa</div>
+      </div>
     </div>
   </div>
 </section>
@@ -348,6 +314,7 @@
           <a href="services.html">Financial Planning</a>
           <a href="services.html">Investment Advisory</a>
           <a href="services.html">Business Development</a>
+          <a href="services.html">Physical Advisory & Consulting</a>
           <a href="services.html">General Merchandise</a>
         </div>
       </div>
