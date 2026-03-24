@@ -327,7 +327,7 @@ if not is_sub:
 
     if remaining(st.session_state.visitor_id) == 1:
         st.warning(
-            "⚠️ You have **1 free consultation** remaining. "
+            "⚠️You've reached today's consultation limit.. "
             "Subscribe for unlimited access."
         )
 
@@ -354,7 +354,7 @@ if not is_sub and is_limited(st.session_state.visitor_id):
         '<div class="paywall-card">'
         '<div class="paywall-title">CONSULTAMHANi</div>'
         '<p class="paywall-body">'
-        "You've used all 5 free consultations.<br/>"
+        "You've used today's free consultations.<br/>"
         "Subscribe to unlock unlimited financial intelligence — 24/7."
         "</p>"
         "</div>",
@@ -363,7 +363,7 @@ if not is_sub and is_limited(st.session_state.visitor_id):
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("✦  Subscribe ₦2,,999 / month", use_container_width=True):
+        if st.button("✦  Subscribe ₦9,,999 / month", use_container_width=True):
             link = create_subscription_link(user_email, user_id)
             if link:
                 st.markdown(
