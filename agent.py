@@ -120,54 +120,64 @@ def sync_memory(messages: list) -> list:
     return history
 
 # ── Public run function ───────────────────────────────────────
-def run_agent(
-    question: str,
-    long_term_context: str = "",
-    chat_history: list = None,
-) -> dict:
+
+def run_agent(question: str, long_term_context: str = "") -> dict:
     """
-    Run the AMHANi agent with retry and self-correction.
-    chat_history: list of LangChain HumanMessage/AIMessage objects
+    Run the agent. Long-term context is injected as a
+    lightweight prefix only — never mixed into the question itself.
     """
-    # Build input with long-term memory if present
-    full_input = question
+    # Keep context injection minimal and clean
     if long_term_context and long_term_context.strip():
         full_input = (
-            f"{long_term_context.strip()}\n\nCurrent question: {question}"
+            f"[Client context: {long_term_context.strip()[:400]}]\n"
+            f"{question}"
         )
+    else:
+        full_input = question
 
     last_error = None
 
     for attempt in range(3):
         try:
-            # Build fresh message list each attempt
-            messages = [SystemMessage(content=SYSTEM_PROMPT)]
-            if chat_history:
-                messages.extend(chat_history[-2:])  # last 1 exchanges only
-            messages.append(HumanMessage(content=str(full_input) if full_input else "Hello"))
-
-            result = _run_loop(messages)
-
-            if result.get("output") and len(result["output"].strip()) > 10:
+            result = agent_executor.invoke({"input": full_input})
+            output = result.get("output", "")
+            if output and len(output.strip()) > 10:
                 return result
-
         except Exception as e:
             last_error = str(e)
             if attempt < 2:
                 full_input = (
                     f"Previous attempt failed: {last_error}\n"
-                    f"Try a different approach to answer: {question}"
+                    f"Try a different approach: {question}"
                 )
 
     return {
         "output": (
-            "I encountered a technical issue after 3 attempts.\n"
-            f"Error: {last_error}\n\n"
-            "Please rephrase your question or try a simpler request."
+            f"I could not complete that request after 3 attempts.\n"
+            f"Error: {last_error}\n"
+            f"Please rephrase or simplify your question."
         ),
         "intermediate_steps": [],
     }
 
+
+def sync_memory(messages: list) -> None:
+    """
+    Sync only the last 4 exchanges into LangChain memory.
+    Less is more — prevents old answers from poisoning new ones.
+    """
+    memory.clear()
+    recent = messages[-8:] if len(messages) > 8 else messages
+
+    for i in range(0, len(recent) - 1, 2):
+        if i + 1 < len(recent):
+            u = recent[i]
+            a = recent[i + 1]
+            if u.get("role") == "user" and a.get("role") == "assistant":
+                memory.save_context(
+                    {"input":  u["content"]},
+                    {"output": a["content"][:400]},  # cap old answers
+                )
 
 # ── CLI ───────────────────────────────────────────────────────
 if __name__ == "__main__":

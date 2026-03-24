@@ -363,7 +363,7 @@ if not is_sub and is_limited(st.session_state.visitor_id):
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("✦  Subscribe —22₦9,999 / month", use_container_width=True):
+        if st.button("✦  Subscribe ₦2,,999 / month", use_container_width=True):
             link = create_subscription_link(user_email, user_id)
             if link:
                 st.markdown(
@@ -409,81 +409,81 @@ if not st.session_state.messages:
 
 # ════════════════════════════════════════════════════════════════
 # CHAT INPUT
-# ════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════
+# ── Process deferred memory save (non-blocking) ───────────────
+if st.session_state.get("_pending_memory"):
+    pending = st.session_state.pop("_pending_memory")
+    try:
+        extract_and_save_facts(
+            pending["user_id"],
+            pending["conversation"],
+            llm,
+        )
+    except Exception:
+        pass  # never let memory errors affect the UI
+
 question = st.chat_input("Ask AMHANi anything financial...")
 
 if question:
     question = question.strip()
-    if not question or len(question) < 2:
-        st.warning("Please type a question before sending.")
+    if not question:
         st.stop()
 
-    st.session_state.messages = st.session_state.messages[-2:]
-
-    # ── Display user message ──────────────────────────────────
+    # ── Show user message ─────────────────────────────────
     st.markdown(
         f'<div class="user-bubble">{question}</div>',
         unsafe_allow_html=True,
     )
+
+    # ── Save to history ───────────────────────────────────
     st.session_state.messages.append({"role": "user", "content": question})
 
-    # ── Increment usage for free users ────────────────────────
+    # ── Increment free usage ──────────────────────────────
     if not is_sub:
         increment_usage(st.session_state.visitor_id)
 
-    # ── Sync short-term memory ────────────────────────────────
-    # Pass all messages except the one we just appended
+    # ── Sync short-term memory (last 4 exchanges only) ───
+    sync_memory(st.session_state.messages[:-1])
 
-clean_messages = [
-    m for m in st.session_state.messages[:-1]
-    if isinstance(m, dict)
-    and isinstance(m.get("content"), str)
-    and m.get("content", "").strip()
-    and m.get("role") in ("user", "assistant")
-]
-chat_history = sync_memory(clean_messages)
+    # ── Load long-term memory (cap at 400 chars) ─────────
+    long_term = ""
+    if user_id:
+        raw = load_memory(user_id)
+        long_term = raw[:400] if raw else ""
 
-long_term    = load_memory(user_id) if user_id else ""
-with st.spinner("AMHANi is thinking..."):
-    result = run_agent(
-        question,
-        long_term_context=long_term,
-        chat_history=chat_history,
-    )
+    # ── Run agent — same as CLI ───────────────────────────
+    with st.spinner("AMHANi is thinking..."):
+        result = run_agent(question, long_term_context=long_term)
 
     answer = result.get("output", "I encountered an issue. Please try again.")
     steps  = result.get("intermediate_steps", [])
 
-    # ── Show reasoning steps (collapsible) ───────────────────
+    # ── Reasoning expander ────────────────────────────────
     if steps:
-        label = f"🧠 Agent Reasoning — {len(steps)} step{'s' if len(steps) > 1 else ''}"
-        with st.expander(label, expanded=False):
-            for i, step in enumerate(steps):
-                if len(step) == 3:
-                    name, inp, obs = step
-                elif len(step) == 2:
-                    name = getattr(step[0], 'tool', str(step[0]))
-                    inp  = getattr(step[0], 'tool_input', '')
-                    obs  = step[1]
-                else:
-                    continue
-                st.markdown(f"**Step {i + 1} — `{name}`**")
-                st.code(str(inp)[:400], language="text")
-                st.caption(f"Result: {str(obs)[:600]}")
+        with st.expander(
+            f"🧠 Reasoning — {len(steps)} step{'s' if len(steps) > 1 else ''}",
+            expanded=False
+        ):
+            for i, (action, observation) in enumerate(steps):
+                st.markdown(f"**Step {i + 1} — `{action.tool}`**")
+                st.code(str(action.tool_input)[:400], language="text")
+                st.caption(f"Result: {str(observation)[:500]}")
                 if i < len(steps) - 1:
                     st.divider()
 
-    # ── Render final answer ───────────────────────────────────
+    # ── Render answer ─────────────────────────────────────
     st.markdown('<div class="agent-label">✦ AMHANi</div>', unsafe_allow_html=True)
     render_response_content(answer)
 
-    # ── Save to session history ───────────────────────────────
+    # ── Save answer to history ────────────────────────────
     st.session_state.messages.append({"role": "assistant", "content": answer})
 
-    # ── Extract and save long-term memory facts (silent) ─────
+    # ── Save long-term memory facts — BACKGROUND (no rerun) ──
+    # Uses st.session_state flag to defer until next natural rerun
     if user_id:
-        extract_and_save_facts(
-            user_id,
-            f"User: {question}\nAgent: {answer}",
-            llm,
-        )
+        st.session_state["_pending_memory"] = {
+            "user_id": user_id,
+            "conversation": f"User: {question}\nAgent: {answer}"
+        }
+
+    # ── NO st.rerun() here — Streamlit handles it naturally ──
