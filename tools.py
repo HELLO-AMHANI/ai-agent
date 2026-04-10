@@ -285,6 +285,9 @@ def get_crypto_price(input: str = "BTC,ETH") -> str:
 
         out = ["── Crypto Prices ──"]
 
+        for coin in coins:
+            sym = f"{coin}-USD"
+
         # Check cache first
         cache_key = f"crypto_{'_'.join(sorted(coins))}"
         cached = _cache.get(cache_key)
@@ -358,30 +361,13 @@ def get_crypto_price(input: str = "BTC,ETH") -> str:
             _cache.set(cache_key, "\n".join(out), _TTL_CRYPTO)
 
         # 4-hour BTC analysis (always fresh — not cached)
-        if want_4h and "BTC" in coins:
-            try:
-                hist = yf.Ticker("BTC-USD").history(interval="1h", period="2d")
-                if not hist.empty and len(hist) >= 4:
-                    recent = hist.tail(4)
-                    high4h = recent["High"].max()
-                    low4h  = recent["Low"].min()
-                    close  = recent["Close"].iloc[-1]
-                    mid    = (high4h + low4h) / 2
-                    bias   = "Bullish" if close > mid else "Bearish"
-                    side   = "above" if close > mid else "below"
-                    r1     = high4h + (high4h - low4h) * 0.382
-                    s1     = low4h  - (high4h - low4h) * 0.382
-                    out.append(f"\n── BTC 4-Hour Levels ──")
-                    out.append(f"Current:    ${close:,.2f}")
-                    out.append(f"4H High:    ${high4h:,.2f}")
-                    out.append(f"4H Low:     ${low4h:,.2f}")
-                    out.append(f"Midpoint:   ${mid:,.2f}")
-                    out.append(f"R1 (est):   ${r1:,.2f}")
-                    out.append(f"S1 (est):   ${s1:,.2f}")
-                    out.append(f"Bias:       {bias} — price {side} midpoint")
-            except Exception:
-                out.append("\n⚠️ 4H level data temporarily unavailable")
+        if want_4h:
+            for coin in coins:
+                sym = f"{coin}-USD"
+                out.append("")
+                out.append(_fetch_4h_levels(sym, coin))
 
+            
         return "\n".join(out)
 
     except Exception as e:
@@ -627,7 +613,134 @@ def get_market_overview(input: str = "all") -> str:
     except Exception as e:
         return f"Market overview error: {e}"
 
+# ── HELPER: fetch 4H OHLC from 1H bars ───────────────────────
+def _fetch_4h_levels(ticker: str, display_name: str) -> str:
+    """
+    Build 4H OHLC by aggregating 1H bars from yfinance.
+    Falls back through multiple methods if one fails.
+    """
+    import time
 
+    # Method 1: 1H interval over 5 days (gives enough bars for 4H grouping)
+    for attempt in range(3):
+        try:
+            time.sleep(attempt * 1.5)  # back-off on retry
+            h = yf.Ticker(ticker).history(interval="1h", period="5d")
+            if not h.empty and len(h) >= 4:
+                break
+        except Exception:
+            h = pd.DataFrame()
+
+    # Method 2: Try futures/ETF equivalent if index fails
+    fallbacks = {
+        "^DJI":   ["YM=F", "DIA"],      # Dow futures, Dow ETF
+        "^GSPC":  ["ES=F", "SPY"],      # S&P futures, S&P ETF
+        "^IXIC":  ["NQ=F", "QQQ"],      # NASDAQ futures, QQQ ETF
+        "^VIX":   ["VIXY"],
+    }
+    if (h is None or h.empty) and ticker in fallbacks:
+        for alt in fallbacks[ticker]:
+            try:
+                time.sleep(1)
+                h = yf.Ticker(alt).history(interval="1h", period="5d")
+                if not h.empty and len(h) >= 4:
+                    display_name = f"{display_name} (via {alt})"
+                    break
+            except Exception:
+                continue
+
+    if h is None or h.empty or len(h) < 4:
+        return f"⚠️ 4H data for {display_name} is temporarily unavailable from all sources. Try again in a few minutes."
+
+    # ── Aggregate 1H bars into 4H candles ─────────────────────
+    h.index = pd.to_datetime(h.index)
+    # Group every 4 rows = 4H candle
+    candles = []
+    bars = h[["Open","High","Low","Close","Volume"]].values
+    for i in range(0, len(bars) - 3, 4):
+        chunk = bars[i:i+4]
+        candles.append({
+            "open":   chunk[0][0],
+            "high":   chunk[:,1].max(),
+            "low":    chunk[:,2].min(),
+            "close":  chunk[-1][3],
+            "volume": chunk[:,4].sum(),
+        })
+
+    if len(candles) < 2:
+        return f"⚠️ Not enough bars to compute 4H structure for {display_name}."
+
+    curr  = candles[-1]
+    prev  = candles[-2]
+    c     = curr["close"]
+    mid   = (curr["high"] + curr["low"]) / 2
+
+    # Fibonacci levels from last 4H candle range
+    rng   = curr["high"] - curr["low"]
+    r1    = curr["high"] + rng * 0.382
+    r2    = curr["high"] + rng * 0.618
+    s1    = curr["low"]  - rng * 0.382
+    s2    = curr["low"]  - rng * 0.618
+
+    # Bias
+    bias  = "Bullish" if c > mid else "Bearish"
+    trend = "Bullish" if curr["close"] > prev["close"] else "Bearish"
+    arrow = "▲" if curr["close"] > prev["close"] else "▼"
+
+    return (
+        f"── {display_name} 4-Hour Analysis ──\n"
+        f"Current Close:  {c:,.2f}\n"
+        f"4H High:        {curr['high']:,.2f}\n"
+        f"4H Low:         {curr['low']:,.2f}\n"
+        f"4H Open:        {curr['open']:,.2f}\n"
+        f"Midpoint:       {mid:,.2f}\n"
+        f"R1 (0.382):     {r1:,.2f}\n"
+        f"R2 (0.618):     {r2:,.2f}\n"
+        f"S1 (0.382):     {s1:,.2f}\n"
+        f"S2 (0.618):     {s2:,.2f}\n"
+        f"Candle Bias:    {bias} (close {('above' if c > mid else 'below')} midpoint)\n"
+        f"Trend vs Prev:  {trend} {arrow}\n"
+        f"Prev 4H Close:  {prev['close']:,.2f}\n"
+        f"Volume:         {curr['volume']:,.0f}\n"
+        f"Source: Yahoo Finance 1H bars aggregated to 4H"
+    )
+
+
+@tool
+def get_index_4h(input: str) -> str:
+    """
+    Get 4-hour technical analysis for major indices.
+    Input: index name or ticker.
+    Examples: 'US30', 'Dow', 'SPX', 'S&P', 'NASDAQ', 'NAS100'
+    Uses futures (YM=F, ES=F, NQ=F) which support intraday data.
+    """
+    # Map common names to the correct intraday-capable ticker
+    mapping = {
+        "US30": ("YM=F",  "US30 / Dow Jones"),
+        "DOW":  ("YM=F",  "US30 / Dow Jones"),
+        "DJI":  ("YM=F",  "US30 / Dow Jones"),
+        "DOWJONES": ("YM=F", "US30 / Dow Jones"),
+        "SPX":  ("ES=F",  "SPX / S&P 500"),
+        "SP500":("ES=F",  "SPX / S&P 500"),
+        "SP":   ("ES=F",  "SPX / S&P 500"),
+        "NAS":  ("NQ=F",  "NAS100 / NASDAQ"),
+        "NAS100":("NQ=F", "NAS100 / NASDAQ"),
+        "NASDAQ":("NQ=F", "NAS100 / NASDAQ"),
+        "NDX":  ("NQ=F",  "NAS100 / NASDAQ"),
+        "GER40":("GC=F",  "GER40"),  # placeholder
+        "GOLD": ("GC=F",  "Gold / XAU"),
+        "XAUUSD":("GC=F", "Gold / XAU"),
+    }
+
+    key = input.strip().upper().replace(" ","").replace("/","")
+    ticker, name = mapping.get(key, (None, None))
+
+    if not ticker:
+        # Try treating input directly as a yfinance ticker
+        ticker = input.strip().upper()
+        name   = ticker
+
+    return _fetch_4h_levels(ticker, name)
 # ══════════════════════════════════════════════════════════════
 # 10. TASK PLANNER
 # ══════════════════════════════════════════════════════════════
@@ -656,6 +769,7 @@ amhani_tools = [
     get_stock_price,
     convert_currency,
     get_crypto_price,
+    get_index_4h,
     calculate_pe_ratio,
     execute_python,
     analyse_financial_data,

@@ -6,6 +6,7 @@
 # streamlit-cookies-manager so session survives refresh.
 # =============================================================
 
+import time
 import os
 import streamlit as st
 from supabase import create_client
@@ -38,14 +39,15 @@ def _get_cookies():
 
 
 # ── Store session in state AND cookies ────────────────────────
+# auth.py — full corrected session management
+
 def _store_session(session) -> None:
-    """Save all session tokens to both st.session_state and browser cookies."""
+    """Save tokens to BOTH session_state AND cookies."""
     st.session_state["access_token"]  = session.access_token
     st.session_state["refresh_token"] = session.refresh_token
     st.session_state["user_id"]       = session.user.id
     st.session_state["user_email"]    = session.user.email
 
-    # Also persist in cookies so refresh doesn't log out
     try:
         cookies = _get_cookies()
         if cookies and cookies.ready():
@@ -53,20 +55,20 @@ def _store_session(session) -> None:
             cookies["refresh_token"] = session.refresh_token
             cookies["user_id"]       = session.user.id
             cookies["user_email"]    = session.user.email
+            cookies["token_saved_at"] = str(int(time.time()))  # ← ADD THIS
             cookies.save()
-    except Exception:
-        pass  # Cookie save failure should never block login
+    except Exception as e:
+        print(f"[auth] cookie save error: {e}")
 
 
-# ── Try restoring session from cookies on page refresh ────────
 def try_restore_from_cookies() -> bool:
     """
-    Called once at app startup.
-    If browser cookies have a valid refresh_token, restore the session
-    so the user does not get logged out on page refresh.
-    Returns True if session was restored.
+    Restore session from cookies on page refresh or new tab.
+    Uses refresh_token to get a fresh access_token from Supabase.
     """
-    # Already in session state — no need to restore
+    import time
+
+    # Already in session_state — skip
     if st.session_state.get("access_token") and st.session_state.get("user_id"):
         return True
 
@@ -75,28 +77,42 @@ def try_restore_from_cookies() -> bool:
         if not cookies:
             return False
 
-        # Wait for cookies to load
         if not cookies.ready():
-            st.stop()  # Streamlit will re-run once cookies are ready
+            st.stop()  # wait for cookies to load
 
         refresh_token = cookies.get("refresh_token", "")
+        saved_at      = cookies.get("token_saved_at", "0")
+
         if not refresh_token:
             return False
 
-        # Use the refresh token to get a new session from Supabase
+        # ── KEY FIX: Check token age before trying to refresh ──
+        # Supabase refresh tokens are valid for 7 days by default
+        # If saved_at is too old (> 6 days), force re-login
+        try:
+            age_seconds = time.time() - float(saved_at)
+            if age_seconds > 6 * 24 * 3600:  # 6 days
+                # Clear stale cookies
+                for key in ("access_token","refresh_token","user_id","user_email","token_saved_at"):
+                    cookies[key] = ""
+                cookies.save()
+                return False
+        except Exception:
+            pass
+
+        # Refresh the session using the stored refresh_token
         if not supabase:
             return False
 
         resp = supabase.auth.refresh_session(refresh_token)
         if resp and resp.session:
-            _store_session(resp.session)
+            _store_session(resp.session)  # saves new tokens back to cookies
             return True
 
-    except Exception:
-        pass  # Expired or invalid token — user needs to log in again
+    except Exception as e:
+        print(f"[auth] restore error: {e}")
 
     return False
-
 
 # ════════════════════════════════════════════════════════════════
 # SESSION HELPERS

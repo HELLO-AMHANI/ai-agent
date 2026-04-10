@@ -38,7 +38,7 @@ from tools import amhani_tools
 
 # ── LLM ──────────────────────────────────────────────────────
 llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
     temperature=1,
     api_key=os.getenv("OPENAI_API_KEY"),
     request_timeout=60,
@@ -65,6 +65,9 @@ SYSTEM_PROMPT = (
     "- Stock chart or graph                        → generate_stock_chart\n"
     "- Python code / loops / custom calculations   → execute_python\n"
     "- Complex multi-step task                     → plan_task FIRST\n\n"
+# In agent.py SYSTEM_PROMPT, add:
+    "- US30 4H / SPX 4H / index 4-hour levels  → get_index_4h\n"
+    "- BTC 4h / ETH 4h / crypto 4-hour levels  → get_crypto_price with '4h' in input\n"
 
     "BEHAVIOUR:\n"
     "1. Answer the CURRENT question only. Do not repeat previous answers.\n"

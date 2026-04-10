@@ -56,6 +56,45 @@ from chat_store import save_message, load_messages, clear_chat
 # ════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
+/* ── Scroll buttons ── */
+.scroll-btn {
+    position: fixed;
+    right: 1.2rem;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #E8C97A, #C9A84C);
+    color: #080807;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 12px rgba(201,168,76,0.35);
+    z-index: 9999;
+    transition: opacity 0.25s, transform 0.2s;
+    text-decoration: none;
+    line-height: 1;
+}
+.scroll-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 5px 18px rgba(201,168,76,0.5);
+}
+#scroll-top { bottom: 5rem; }
+#scroll-bot { bottom: 1.2rem; }
+</style>
+
+<a id="scroll-top" class="scroll-btn" 
+   onclick="window.scrollTo({top:0,behavior:'smooth'})" 
+   title="Scroll to top">&#8679;</a>
+
+<a id="scroll-bot" class="scroll-btn" 
+   onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})" 
+   title="Scroll to bottom">&#8681;</a>
+""", unsafe_allow_html=True)
+
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Cormorant+Garamond:wght@300;400;600&family=Montserrat:wght@300;400;500;600&display=swap');
 
 html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
@@ -260,11 +299,12 @@ with col_email:
         unsafe_allow_html=True,
     )
 with col_logout:
+# In your logout button handler:
     if st.button("Exit", key="logout_btn"):
         logout()
-        # Clear all session data on explicit logout
-        for k in ("messages", "history_loaded", "is_subscriber", "_pending_memory"):
-            st.session_state.pop(k, None)
+    # Clear ALL session state completely
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         _safe_rerun()
 
 st.divider()
@@ -321,7 +361,7 @@ if not is_sub and is_limited(st.session_state.visitor_id):
     )
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("✦  Subscribe — ₦9,999 / month", use_container_width=True):
+        if st.button("✦  Subscrib# 29,009 / month", use_container_width=True):
             link = create_subscription_link(user_email, user_id)
             if link:
                 st.markdown(

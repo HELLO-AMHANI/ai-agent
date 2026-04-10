@@ -54,16 +54,27 @@ def get_visitor_id() -> str:
 
 def _get_record(visitor_id: str) -> dict:
     data   = _load()
-    record = data.get(visitor_id, {"count": 0, "first_seen": None, "last_seen": None})
+    record = data.get(visitor_id)
 
-    # Auto-reset if window has elapsed
-    if record.get("first_seen"):
-        first = datetime.fromisoformat(record["first_seen"])
-        if datetime.utcnow() - first > timedelta(hours=RESET_HOURS):
-            record = {"count": 0, "first_seen": None, "last_seen": None}
+    # ── If no record at all — create fresh
+    if record is None:
+        return {"count": 0, "first_seen": None, "last_seen": None}
+
+    # ── Only reset if first_seen exists AND 24h has actually passed
+    first_seen = record.get("first_seen")
+    if first_seen:
+        try:
+            first = datetime.fromisoformat(first_seen)
+            elapsed = datetime.utcnow() - first
+            if elapsed.total_seconds() >= RESET_HOURS * 3600:
+                # 24h genuinely passed — reset
+                return {"count": 0, "first_seen": None, "last_seen": None}
+            # else: still within window — return as-is
+        except (ValueError, TypeError):
+            # Corrupted timestamp — reset
+            return {"count": 0, "first_seen": None, "last_seen": None}
 
     return record
-
 
 def _save_record(visitor_id: str, record: dict) -> None:
     data = _load()
