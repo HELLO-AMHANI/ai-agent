@@ -1,18 +1,12 @@
 # =============================================================
 # app.py — AMHANi ENTERPRISE · Streamlit Interface
-# DIAGNOSIS FIX:
-#   - Refresh logs out: tokens only in session_state (wiped on
-#     refresh). FIX: auth.try_restore_from_cookies() restores
-#     session from browser cookies before any auth check.
-#   - Wrong chat history: previous broken app was saving messages
-#     with null user_id. FIX: strict validation before save/load,
-#     plus load ONLY after confirmed user_id.
-#   - history_loaded flag wrong placement: was initialised before
-#     user_id was known. FIX: moved entirely into post-login block.
-#   - st.switch_page on logout crashed on Streamlit Cloud.
-#     FIX: replaced with _safe_rerun().
-#   - Reasoning expander crashed on 3-tuple steps.
-#     FIX: defensive step unpacking.
+# FIXES APPLIED:
+#   - SyntaxError: CSS was split across two st.markdown blocks,
+#     leaving raw CSS outside a string. FIX: merged into ONE
+#     st.markdown block containing ALL styles + scroll buttons.
+#   - Logout indentation bug: for loop fell outside the if block.
+#     FIX: corrected indentation.
+#   - Subscribe button typo: "Subscrib# 29,009" → "Subscribe — ₦9,999"
 # =============================================================
 
 import os
@@ -20,7 +14,7 @@ import streamlit as st
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── Page config — MUST be first Streamlit call ────────────────
+# ── Page config — MUST be the very first Streamlit call ───────
 st.set_page_config(
     page_title="CONSULTAMHANi",
     page_icon="✦",
@@ -28,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Imports after set_page_config ────────────────────────────
+# ── All other imports come AFTER set_page_config ──────────────
 from agent import run_agent, sync_memory, llm
 from auth import (
     render_auth_ui,
@@ -52,11 +46,134 @@ from chat_store import save_message, load_messages, clear_chat
 
 
 # ════════════════════════════════════════════════════════════════
-# STYLES
+# GLOBAL STYLES — ONE single st.markdown block for ALL CSS
+# BUG FIX: Previously split into two blocks; CSS outside a string
+# caused "SyntaxError: invalid decimal literal" on rem values.
 # ════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-/* ── Scroll buttons ── */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Cormorant+Garamond:wght@300;400;600&family=Montserrat:wght@300;400;500;600&display=swap');
+
+html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
+.stApp { background: #080807; color: #FAFAF7; }
+
+/* ── Header ── */
+.amhani-header {
+    text-align: center;
+    padding: 2.5rem 0 1.2rem;
+    border-bottom: 1px solid rgba(201,168,76,0.15);
+    margin-bottom: 1.5rem;
+}
+.amhani-wordmark {
+    font-family: 'Cinzel', serif;
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: 0.25em;
+    background: linear-gradient(135deg, #E8C97A, #C9A84C, #8B6914);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.amhani-sub {
+    font-size: 0.58rem;
+    letter-spacing: 0.42em;
+    color: rgba(201,168,76,0.4);
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+
+/* ── Chat bubbles ── */
+.user-bubble {
+    background: rgba(201,168,76,0.08);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 12px 12px 2px 12px;
+    padding: 0.9rem 1.2rem;
+    margin: 0.5rem 0 0.5rem 2rem;
+    font-size: 0.88rem;
+    color: #FAFAF7;
+    line-height: 1.7;
+}
+.agent-bubble {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px 12px 12px 2px;
+    padding: 0.9rem 1.2rem;
+    margin: 0.5rem 2rem 0.5rem 0;
+    font-size: 0.88rem;
+    color: #FAFAF7;
+    line-height: 1.8;
+    white-space: pre-wrap;
+}
+.agent-label {
+    font-size: 0.55rem;
+    letter-spacing: 0.28em;
+    color: #C9A84C;
+    text-transform: uppercase;
+    margin-bottom: 0.3rem;
+    font-weight: 600;
+}
+
+/* ── Usage dots ── */
+.usage-dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 1.2rem; }
+.dot-active { width:10px; height:10px; border-radius:50%; background:#C9A84C; display:inline-block; }
+.dot-used   { width:10px; height:10px; border-radius:50%; background:#8B6914; opacity:0.35; display:inline-block; }
+.dot-warn   { width:10px; height:10px; border-radius:50%; background:#c94c4c; display:inline-block; }
+
+/* ── Plan badge ── */
+.plan-badge {
+    display: inline-block;
+    font-size: 0.58rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+.badge-pro  { background: linear-gradient(135deg,#E8C97A,#C9A84C); color:#080807; }
+.badge-free { background: rgba(201,168,76,0.1); color:#C9A84C; border:1px solid rgba(201,168,76,0.3); }
+
+/* ── Paywall card ── */
+.paywall-card {
+    background: rgba(201,168,76,0.05);
+    border: 1px solid rgba(201,168,76,0.3);
+    border-radius: 8px;
+    padding: 2.5rem 2rem;
+    text-align: center;
+    margin: 1.5rem 0;
+}
+.paywall-title { font-family:'Cinzel',serif; font-size:1.5rem; color:#C9A84C; letter-spacing:0.18em; margin-bottom:0.6rem; }
+.paywall-body  { font-size:0.82rem; color:rgba(250,250,247,0.55); line-height:1.8; margin-bottom:1.5rem; }
+.paywall-price { font-size:0.78rem; color:rgba(250,250,247,0.35); margin-top:0.8rem; }
+
+/* ── Inputs ── */
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea {
+    background: #161610 !important;
+    border: 1px solid rgba(201,168,76,0.2) !important;
+    color: #FAFAF7 !important;
+    border-radius: 3px !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: rgba(201,168,76,0.55) !important;
+    box-shadow: none !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: linear-gradient(135deg,#E8C97A,#C9A84C) !important;
+    color: #080807 !important;
+    font-weight: 600 !important;
+    border: none !important;
+    border-radius: 3px !important;
+    letter-spacing: 0.1em !important;
+    font-size: 0.75rem !important;
+}
+.stButton > button:hover { opacity: 0.88 !important; }
+hr { border-color: rgba(201,168,76,0.12) !important; }
+
+/* ── Scroll buttons (fixed, bottom-right) ── */
 .scroll-btn {
     position: fixed;
     right: 1.2rem;
@@ -67,108 +184,41 @@ st.markdown("""
     color: #080807;
     border: none;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: 1.3rem;
     font-weight: 700;
     display: flex;
     align-items: center;
     justify-content: center;
     box-shadow: 0 3px 12px rgba(201,168,76,0.35);
     z-index: 9999;
-    transition: opacity 0.25s, transform 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s;
     text-decoration: none;
     line-height: 1;
+    user-select: none;
 }
 .scroll-btn:hover {
-    transform: scale(1.1);
+    transform: scale(1.12);
     box-shadow: 0 5px 18px rgba(201,168,76,0.5);
+    color: #080807;
 }
-#scroll-top { bottom: 5rem; }
-#scroll-bot { bottom: 1.2rem; }
+#scroll-top { bottom: 5.2rem; }
+#scroll-bot { bottom: 1.0rem; }
 </style>
 
-<a id="scroll-top" class="scroll-btn" 
-   onclick="window.scrollTo({top:0,behavior:'smooth'})" 
+<!-- Scroll to top button -->
+<a id="scroll-top" class="scroll-btn"
+   onclick="window.scrollTo({top:0,behavior:'smooth'})"
    title="Scroll to top">&#8679;</a>
 
-<a id="scroll-bot" class="scroll-btn" 
-   onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})" 
+<!-- Scroll to bottom button -->
+<a id="scroll-bot" class="scroll-btn"
+   onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})"
    title="Scroll to bottom">&#8681;</a>
-""", unsafe_allow_html=True)
-
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Cormorant+Garamond:wght@300;400;600&family=Montserrat:wght@300;400;500;600&display=swap');
-
-html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
-.stApp { background: #080807; color: #FAFAF7; }
-
-.amhani-header {
-    text-align: center; padding: 2.5rem 0 1.2rem;
-    border-bottom: 1px solid rgba(201,168,76,0.15); margin-bottom: 1.5rem;
-}
-.amhani-wordmark {
-    font-family: 'Cinzel', serif; font-size: 2rem; font-weight: 600;
-    letter-spacing: 0.25em;
-    background: linear-gradient(135deg, #E8C97A, #C9A84C, #8B6914);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.amhani-sub {
-    font-size: 0.58rem; letter-spacing: 0.42em;
-    color: rgba(201,168,76,0.4); text-transform: uppercase; margin-top: 4px;
-}
-.user-bubble {
-    background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.2);
-    border-radius: 12px 12px 2px 12px; padding: 0.9rem 1.2rem;
-    margin: 0.5rem 0 0.5rem 2rem; font-size: 0.88rem; color: #FAFAF7; line-height: 1.7;
-}
-.agent-bubble {
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px 12px 12px 2px; padding: 0.9rem 1.2rem;
-    margin: 0.5rem 2rem 0.5rem 0; font-size: 0.88rem; color: #FAFAF7; line-height: 1.8;
-    white-space: pre-wrap;
-}
-.agent-label {
-    font-size: 0.55rem; letter-spacing: 0.28em; color: #C9A84C;
-    text-transform: uppercase; margin-bottom: 0.3rem; font-weight: 600;
-}
-.usage-dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 1.2rem; }
-.dot-active { width:10px; height:10px; border-radius:50%; background:#C9A84C; display:inline-block; }
-.dot-used   { width:10px; height:10px; border-radius:50%; background:#8B6914; opacity:0.35; display:inline-block; }
-.dot-warn   { width:10px; height:10px; border-radius:50%; background:#c94c4c; display:inline-block; }
-.plan-badge {
-    display: inline-block; font-size: 0.58rem; letter-spacing: 0.18em;
-    text-transform: uppercase; font-weight: 700; padding: 2px 8px;
-    border-radius: 3px; margin-left: 8px; vertical-align: middle;
-}
-.badge-pro  { background: linear-gradient(135deg,#E8C97A,#C9A84C); color:#080807; }
-.badge-free { background: rgba(201,168,76,0.1); color:#C9A84C; border:1px solid rgba(201,168,76,0.3); }
-.paywall-card {
-    background: rgba(201,168,76,0.05); border: 1px solid rgba(201,168,76,0.3);
-    border-radius: 8px; padding: 2.5rem 2rem; text-align: center; margin: 1.5rem 0;
-}
-.paywall-title { font-family:'Cinzel',serif; font-size:1.5rem; color:#C9A84C; letter-spacing:0.18em; margin-bottom:0.6rem; }
-.paywall-body  { font-size:0.82rem; color:rgba(250,250,247,0.55); line-height:1.8; margin-bottom:1.5rem; }
-.paywall-price { font-size:0.78rem; color:rgba(250,250,247,0.35); margin-top:0.8rem; }
-div[data-testid="stTextInput"] input,
-div[data-testid="stTextArea"] textarea {
-    background: #161610 !important; border: 1px solid rgba(201,168,76,0.2) !important;
-    color: #FAFAF7 !important; border-radius: 3px !important;
-}
-div[data-testid="stTextInput"] input:focus,
-div[data-testid="stTextArea"] textarea:focus {
-    border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
-}
-.stButton > button {
-    background: linear-gradient(135deg,#E8C97A,#C9A84C) !important;
-    color: #080807 !important; font-weight: 600 !important; border: none !important;
-    border-radius: 3px !important; letter-spacing: 0.1em !important; font-size: 0.75rem !important;
-}
-.stButton > button:hover { opacity: 0.88 !important; }
-hr { border-color: rgba(201,168,76,0.12) !important; }
-</style>
 """, unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════
-# HELPERS
+# HELPERS — defined here so available everywhere below
 # ════════════════════════════════════════════════════════════════
 def _safe_rerun():
     try:
@@ -178,7 +228,7 @@ def _safe_rerun():
 
 
 def render_response_content(content: str) -> None:
-    """Render plain text or base64 chart — defined at top so always available."""
+    """Render plain text or base64 chart inline."""
     if "CHART_BASE64:" in content:
         parts = content.split("CHART_BASE64:", 1)
         if parts[0].strip():
@@ -199,24 +249,24 @@ def render_response_content(content: str) -> None:
 
 
 # ════════════════════════════════════════════════════════════════
-# SESSION RESTORE — run before any auth check
-# FIX: This is what keeps users logged in after a page refresh.
-# Reads the refresh_token from cookies and restores the session.
+# SESSION RESTORE — must run before any auth check
+# Reads refresh_token from encrypted browser cookies and silently
+# restores the Supabase session so refresh does NOT log users out.
 # ════════════════════════════════════════════════════════════════
 try_restore_from_cookies()
 
 
 # ════════════════════════════════════════════════════════════════
-# SAFE DEFAULTS — before auth gate
+# SAFE SESSION STATE DEFAULTS — before auth gate
 # ════════════════════════════════════════════════════════════════
-if "visitor_id"    not in st.session_state:
-    st.session_state.visitor_id    = get_visitor_id()
+if "visitor_id" not in st.session_state:
+    st.session_state.visitor_id = get_visitor_id()
 if "is_subscriber" not in st.session_state:
     st.session_state.is_subscriber = False
 
 
 # ════════════════════════════════════════════════════════════════
-# AUTH GATE
+# AUTH GATE — show login if not signed in
 # ════════════════════════════════════════════════════════════════
 if not is_logged_in():
     st.markdown(
@@ -231,21 +281,16 @@ if not is_logged_in():
 
 
 # ════════════════════════════════════════════════════════════════
-# POST-LOGIN — user_id is confirmed valid from here downward
+# POST-LOGIN SETUP — user_id is confirmed non-empty from here down
 # ════════════════════════════════════════════════════════════════
 user_email = get_user_email()
-user_id    = get_user_id()          # guaranteed non-empty here
+user_id    = get_user_id()
 is_sub     = check_subscription(user_id)
 st.session_state.is_subscriber = is_sub
 
-
-# ── Load chat history from Supabase ONCE per session ──────────
-# history_loaded is per-session (cleared on refresh/logout).
-# After restore_from_cookies re-establishes the session, this
-# loads the correct history for the confirmed user_id.
+# Load chat history from Supabase ONCE per login session
 if not st.session_state.get("history_loaded"):
     raw_msgs = load_messages(user_id, limit=100)
-    # Validate: only accept messages with valid role and non-empty content
     st.session_state.messages = [
         m for m in raw_msgs
         if m.get("role") in ("user", "assistant")
@@ -299,10 +344,10 @@ with col_email:
         unsafe_allow_html=True,
     )
 with col_logout:
-# In your logout button handler:
+    # BUG FIX: indentation was broken — for loop was outside the if block
     if st.button("Exit", key="logout_btn"):
         logout()
-    # Clear ALL session state completely
+        # Clear ALL session state on explicit logout
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         _safe_rerun()
@@ -361,7 +406,8 @@ if not is_sub and is_limited(st.session_state.visitor_id):
     )
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("✦  Subscrib# 29,009 / month", use_container_width=True):
+        # BUG FIX: was "Subscrib# 29,009" — hash broke the string
+        if st.button("\u2746  Subscribe \u2014 \u20a69,999 / month", use_container_width=True):
             link = create_subscription_link(user_email, user_id)
             if link:
                 st.markdown(
@@ -371,38 +417,40 @@ if not is_sub and is_limited(st.session_state.visitor_id):
             else:
                 st.error("Could not create payment link. Try again.")
     st.markdown(
-        '<p class="paywall-price">Unlimited · Real-time data · AI-powered analysis</p>',
+        '<p class="paywall-price">Unlimited \u00b7 Real-time data \u00b7 AI-powered analysis</p>',
         unsafe_allow_html=True,
     )
     st.stop()
 
 
 # ════════════════════════════════════════════════════════════════
-# WELCOME (only when history is empty)
+# WELCOME MESSAGE (only when history is empty)
 # ════════════════════════════════════════════════════════════════
 if not st.session_state.get("messages"):
     greeting = (
-        "Welcome back to **CONSULTAMHANi** ✦\n\n"
+        "Welcome back to **CONSULTAMHANi** \u2746\n\n"
         if is_sub else
-        "Welcome to **CONSULTAMHANi** ✦\n\n"
+        "Welcome to **CONSULTAMHANi** \u2746\n\n"
     )
     greeting += (
         "I'm AMHANi, your financial intelligence agent. I can help with:\n\n"
-        "- 📈 Real-time stock prices & charts\n"
-        "- 💱 Currency conversion (USD ↔ NGN and more)\n"
-        "- 🪙 Crypto prices & 4-hour level analysis\n"
-        "- 🧮 Financial calculations (ROI, loans, compound interest, break-even)\n"
-        "- 📊 Data analysis & market research\n"
-        "- 💡 Investment insights & business advisory\n"
-        "- 🖥️ Python-powered financial calculations\n\n"
+        "- \U0001f4c8 Real-time stock prices & charts\n"
+        "- \U0001f4b1 Currency conversion (USD \u2194 NGN and more)\n"
+        "- \U0001fa99 Crypto prices & 4-hour level analysis\n"
+        "- \U0001f4ca US30, SPX, NAS100 4-hour technical analysis\n"
+        "- \U0001f9ee Financial calculations (ROI, loans, compound interest, break-even)\n"
+        "- \U0001f4ca Data analysis & market research\n"
+        "- \U0001f4a1 Investment insights & business advisory\n"
+        "- \U0001f5a5 Python-powered financial calculations\n\n"
         "What would you like to explore today?"
     )
-    st.markdown('<div class="agent-label">✦ AMHANi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="agent-label">\u2746 AMHANi</div>', unsafe_allow_html=True)
     render_response_content(greeting)
 
 
 # ════════════════════════════════════════════════════════════════
-# DEFERRED MEMORY SAVE — non-blocking, runs on next natural rerun
+# DEFERRED MEMORY SAVE — non-blocking background task
+# Runs on next natural Streamlit rerun, never blocks the UI.
 # ════════════════════════════════════════════════════════════════
 if st.session_state.get("_pending_memory"):
     pending = st.session_state.pop("_pending_memory")
@@ -413,7 +461,7 @@ if st.session_state.get("_pending_memory"):
             llm,
         )
     except Exception:
-        pass  # Memory errors must never disrupt the chat UI
+        pass
 
 
 # ════════════════════════════════════════════════════════════════
@@ -426,25 +474,25 @@ if question:
     if not question:
         st.stop()
 
-    # Display user message
+    # Show user message
     st.markdown(
         f'<div class="user-bubble">{question}</div>',
         unsafe_allow_html=True,
     )
 
-    # Save to session + Supabase (user_id validated above)
+    # Save to session + Supabase immediately
     st.session_state.messages.append({"role": "user", "content": question})
     if user_id:
         save_message(user_id, "user", question)
 
-    # Increment free usage
+    # Increment free usage counter
     if not is_sub:
         increment_usage(st.session_state.visitor_id)
 
-    # Build short-term memory from confirmed pairs only
+    # Build short-term memory from last 6 confirmed pairs
     history = sync_memory(st.session_state.messages[:-1])
 
-    # Long-term memory (capped to avoid prompt bloat)
+    # Long-term memory (capped at 400 chars to avoid prompt bloat)
     long_term = ""
     if user_id:
         raw = load_memory(user_id)
@@ -461,35 +509,34 @@ if question:
     answer = result.get("output", "I encountered an issue. Please try again.")
     steps  = result.get("intermediate_steps", [])
 
-    # Reasoning expander — steps are 3-tuples: (name, input, result)
+    # Reasoning expander — steps are 3-tuples (name, input, result)
     if steps:
-        label = f"🧠 Reasoning — {len(steps)} step{'s' if len(steps) > 1 else ''}"
+        label = f"\U0001f9e0 Reasoning \u2014 {len(steps)} step{'s' if len(steps) > 1 else ''}"
         with st.expander(label, expanded=False):
             for i, step in enumerate(steps):
-                # Defensive unpacking — steps must be 3-tuple
-                name  = step[0] if len(step) > 0 else "unknown"
-                inp   = step[1] if len(step) > 1 else ""
-                obs   = step[2] if len(step) > 2 else ""
-                st.markdown(f"**Step {i + 1} — `{name}`**")
+                name = step[0] if len(step) > 0 else "unknown"
+                inp  = step[1] if len(step) > 1 else ""
+                obs  = step[2] if len(step) > 2 else ""
+                st.markdown(f"**Step {i + 1} \u2014 `{name}`**")
                 st.code(str(inp)[:400], language="text")
                 st.caption(f"Result: {str(obs)[:500]}")
                 if i < len(steps) - 1:
                     st.divider()
 
-    # Render answer
-    st.markdown('<div class="agent-label">✦ AMHANi</div>', unsafe_allow_html=True)
+    # Render final answer
+    st.markdown('<div class="agent-label">\u2746 AMHANi</div>', unsafe_allow_html=True)
     render_response_content(answer)
 
-    # Save answer to session + Supabase
+    # Save to session + Supabase
     st.session_state.messages.append({"role": "assistant", "content": answer})
     if user_id:
         save_message(user_id, "assistant", answer)
 
-    # Queue background memory extraction
+    # Queue background memory extraction for next rerun
     if user_id:
         st.session_state["_pending_memory"] = {
             "user_id":      user_id,
             "conversation": f"User: {question}\nAgent: {answer}",
         }
 
-    # No st.rerun() — Streamlit reruns naturally after state mutation
+    # No st.rerun() here — Streamlit handles it naturally
