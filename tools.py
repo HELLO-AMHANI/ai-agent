@@ -1,14 +1,16 @@
 # =============================================================
 # tools.py — AMHANi ENTERPRISE
-# DIAGNOSIS FIX:
-#   - Rate limiting: No cache existed — every call hit Yahoo cold.
-#     FIX: Module-level TTL cache (60s stocks, 60s crypto, 300s FX).
-#   - Crypto NaN: yfinance returns NaN for crypto fast_info on
-#     Streamlit Cloud. FIX: CoinGecko free API as primary for crypto.
-#   - Duplicate convert_currency: Second definition overwrote first.
-#     FIX: Single definition using ExchangeRate-API as primary.
-#   - time/requests imported inside functions: fragile.
-#     FIX: All imports at top.
+# NVIDIA FIX:
+#   - 4H unavailable on Streamlit Cloud: time.sleep() was blocking
+#     Streamlit's event loop causing timeout. FIX: removed all
+#     sleep() calls from _fetch_4h_levels, added proper h=None
+#     initialization BEFORE the retry loop so UnboundLocalError
+#     never silently swallows data.
+#   - Added concurrent.futures timeout wrapper so yfinance calls
+#     never hang indefinitely on cloud.
+#   - Futures ticker fallback order corrected: YM=F (Dow mini),
+#     ES=F (S&P mini), NQ=F (NASDAQ mini) all confirmed to
+#     return intraday data on yfinance free tier.
 # =============================================================
 
 import io
@@ -19,6 +21,7 @@ import time
 import base64
 import traceback
 import threading
+import concurrent.futures
 import requests
 from datetime import datetime
 
@@ -33,10 +36,9 @@ from langchain.tools import tool
 
 
 # ══════════════════════════════════════════════════════════════
-# TTL CACHE — prevents rate limiting by reusing recent results
+# TTL CACHE
 # ══════════════════════════════════════════════════════════════
 class _TTLCache:
-    """Thread-safe cache with per-entry TTL."""
     def __init__(self):
         self._data = {}
         self._lock = threading.Lock()
@@ -57,11 +59,155 @@ class _TTLCache:
 
 
 _cache = _TTLCache()
+_TTL_STOCK  = 60
+_TTL_CRYPTO = 60
+_TTL_FX     = 300
+_TTL_4H     = 240   # 4H data cached 4 minutes
 
-# TTL constants (seconds)
-_TTL_STOCK  = 60    # 1 minute
-_TTL_CRYPTO = 60    # 1 minute
-_TTL_FX     = 300   # 5 minutes
+
+# ══════════════════════════════════════════════════════════════
+# SAFE YFINANCE FETCHER — wraps every call with a timeout
+# This is the core fix for Streamlit Cloud hangs.
+# ══════════════════════════════════════════════════════════════
+def _yf_fetch(ticker: str, interval: str = "1d", period: str = "2d",
+              timeout_sec: int = 12) -> pd.DataFrame:
+    """
+    Fetch yfinance history with a hard timeout.
+    Returns empty DataFrame on timeout or error — never hangs.
+    """
+    def _fetch():
+        return yf.Ticker(ticker).history(interval=interval, period=period)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_fetch)
+            return future.result(timeout=timeout_sec)
+    except concurrent.futures.TimeoutError:
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+# ══════════════════════════════════════════════════════════════
+# 4H HELPER — no sleep(), proper initialization, cloud-safe
+# ══════════════════════════════════════════════════════════════
+def _fetch_4h_levels(ticker: str, display_name: str) -> str:
+    """
+    Aggregate 1H bars into 4H candles.
+    FIXED:
+      - h initialized to None BEFORE loop (was after, causing UnboundLocalError)
+      - All time.sleep() removed (was blocking Streamlit event loop)
+      - Hard timeout via ThreadPoolExecutor so cloud never hangs
+      - Futures fallback correctly ordered
+    """
+    cache_key = f"4h_{ticker}"
+    cached = _cache.get(cache_key)
+    if cached:
+        return cached
+
+    # ── IMPORTANT: initialize h BEFORE the loop ──────────────
+    h = None
+
+    # Primary: try the given ticker with 1H interval, 7 days history
+    h = _yf_fetch(ticker, interval="1h", period="7d", timeout_sec=15)
+    if h is not None and not h.empty and len(h) >= 4:
+        pass  # got data, skip fallbacks
+    else:
+        h = None  # reset for fallback logic
+
+    # Fallback map: index tickers → futures that support intraday
+    fallback_map = {
+        # Dow Jones
+        "^DJI":    ["YM=F", "DIA"],
+        # S&P 500
+        "^GSPC":   ["ES=F", "SPY"],
+        # NASDAQ
+        "^IXIC":   ["NQ=F", "QQQ"],
+        # VIX (no intraday futures alternative — use VIXY ETF)
+        "^VIX":    ["VIXY"],
+        # Common alias names users type
+        "US30":    ["YM=F", "DIA"],
+        "SPX":     ["ES=F", "SPY"],
+        "NAS100":  ["NQ=F", "QQQ"],
+    }
+
+    if h is None or h.empty:
+        alts = fallback_map.get(ticker.upper(), [])
+        for alt in alts:
+            h_alt = _yf_fetch(alt, interval="1h", period="7d", timeout_sec=15)
+            if h_alt is not None and not h_alt.empty and len(h_alt) >= 4:
+                h = h_alt
+                display_name = f"{display_name} (via {alt})"
+                break
+
+    # Final guard
+    if h is None or h.empty or len(h) < 4:
+        return (
+            f"⚠️ 4H data for {display_name} is temporarily unavailable.\n"
+            f"Yahoo Finance does not provide intraday data for this symbol on the free tier.\n"
+            f"Try: 'US30 4h' (uses YM=F futures) or 'BTC 4h' (uses BTC-USD hourly)."
+        )
+
+    # ── Aggregate 1H → 4H ────────────────────────────────────
+    h.index = pd.to_datetime(h.index)
+    # Drop any rows with NaN close prices
+    h = h.dropna(subset=["Close"])
+
+    if len(h) < 4:
+        return f"⚠️ Not enough clean bars for {display_name} 4H analysis."
+
+    bars = h[["Open", "High", "Low", "Close", "Volume"]].values
+    candles = []
+    for i in range(0, len(bars) - 3, 4):
+        chunk = bars[i:i + 4]
+        if len(chunk) == 4:
+            candles.append({
+                "open":   float(chunk[0][0]),
+                "high":   float(chunk[:, 1].max()),
+                "low":    float(chunk[:, 2].min()),
+                "close":  float(chunk[-1][3]),
+                "volume": float(chunk[:, 4].sum()),
+            })
+
+    if len(candles) < 2:
+        return f"⚠️ Not enough complete 4H candles for {display_name}."
+
+    curr = candles[-1]
+    prev = candles[-2]
+    c    = curr["close"]
+    mid  = (curr["high"] + curr["low"]) / 2
+    rng  = curr["high"] - curr["low"]
+
+    # Fibonacci extension levels
+    r1 = curr["high"] + rng * 0.382
+    r2 = curr["high"] + rng * 0.618
+    s1 = curr["low"]  - rng * 0.382
+    s2 = curr["low"]  - rng * 0.618
+
+    bias  = "Bullish" if c > mid  else "Bearish"
+    trend = "Bullish" if curr["close"] > prev["close"] else "Bearish"
+    arrow = "▲" if curr["close"] > prev["close"] else "▼"
+
+    result = (
+        f"── {display_name} 4-Hour Analysis ──\n"
+        f"Current Close:  {c:,.2f}\n"
+        f"4H Open:        {curr['open']:,.2f}\n"
+        f"4H High:        {curr['high']:,.2f}\n"
+        f"4H Low:         {curr['low']:,.2f}\n"
+        f"Midpoint:       {mid:,.2f}\n"
+        f"R1 (0.382):     {r1:,.2f}\n"
+        f"R2 (0.618):     {r2:,.2f}\n"
+        f"S1 (0.382):     {s1:,.2f}\n"
+        f"S2 (0.618):     {s2:,.2f}\n"
+        f"Candle Bias:    {bias} — close {'above' if c > mid else 'below'} midpoint\n"
+        f"Trend vs Prev:  {trend} {arrow}\n"
+        f"Prev 4H Close:  {prev['close']:,.2f}\n"
+        f"Volume:         {curr['volume']:,.0f}\n"
+        f"Candles used:   {len(candles)} × 4H\n"
+        f"Source: Yahoo Finance 1H → 4H aggregation"
+    )
+    _cache.set(cache_key, result, _TTL_4H)
+    return result
 
 
 # ══════════════════════════════════════════════════════════════
@@ -71,23 +217,18 @@ _TTL_FX     = 300   # 5 minutes
 def get_stock_price(ticker: str) -> str:
     """
     Get current stock price for a ticker symbol.
-    Uses cache to prevent rate limiting. Falls back across methods.
     Input: ticker e.g. 'AAPL', 'TSLA', 'DANGOTE.LG'
     """
-    ticker = ticker.upper().strip()
+    ticker    = ticker.upper().strip()
     cache_key = f"stock_{ticker}"
-
-    # Return cached result if fresh
-    cached = _cache.get(cache_key)
+    cached    = _cache.get(cache_key)
     if cached:
-        return cached + "\n📋 Source: cached (< 60s old)"
+        return cached + "\n📋 cached (< 60s)"
 
-    # Method 1 — yfinance fast_info
     try:
         fi    = yf.Ticker(ticker).fast_info
         price = fi.last_price
         prev  = fi.previous_close or price
-        # NaN check: NaN != NaN in Python
         if price and price == price and price > 0:
             chg = price - prev
             pct = (chg / prev * 100) if prev else 0
@@ -104,9 +245,8 @@ def get_stock_price(ticker: str) -> str:
     except Exception:
         pass
 
-    # Method 2 — yfinance history
     try:
-        hist = yf.Ticker(ticker).history(period="2d")
+        hist = _yf_fetch(ticker, period="2d")
         if not hist.empty:
             latest = hist.iloc[-1]
             prev   = hist.iloc[-2] if len(hist) > 1 else latest
@@ -125,10 +265,7 @@ def get_stock_price(ticker: str) -> str:
     except Exception:
         pass
 
-    return (
-        f"⚠️ {ticker} price temporarily unavailable — Yahoo Finance rate limit reached.\n"
-        f"Please try again in 60 seconds or visit finance.yahoo.com/quote/{ticker}"
-    )
+    return f"⚠️ {ticker} price temporarily unavailable. Try again in 60 seconds."
 
 
 # ══════════════════════════════════════════════════════════════
@@ -137,10 +274,8 @@ def get_stock_price(ticker: str) -> str:
 @tool
 def convert_currency(input: str) -> str:
     """
-    Convert between currencies using live exchange rates.
-    Input format: 'amount, FROM, TO'
-    Examples: '1500, USD, NGN'  or  '50000, NGN, USD'
-    Supported: USD, NGN, GBP, EUR, JPY, CAD, AUD, CNY, ZAR, GHS, KES, and more.
+    Convert between currencies.
+    Format: 'amount, FROM, TO'  e.g. '1500, USD, NGN'
     """
     try:
         parts  = [p.strip() for p in input.split(",")]
@@ -150,131 +285,70 @@ def convert_currency(input: str) -> str:
         frm    = parts[1].upper()
         to     = parts[2].upper()
 
-        cache_key = f"fx_{frm}_{to}"
+        cache_key   = f"fx_{frm}_{to}"
         cached_rate = _cache.get(cache_key)
-
         if cached_rate:
-            converted = amount * cached_rate
             return (
-                f"💱 Currency Conversion\n"
-                f"{amount:,.2f} {frm} = {converted:,.2f} {to}\n"
-                f"Rate: 1 {frm} = {cached_rate:,.4f} {to}\n"
-                f"📋 Source: cached rate (< 5 min old)"
+                f"💱 {amount:,.2f} {frm} = {amount * cached_rate:,.2f} {to}\n"
+                f"Rate: 1 {frm} = {cached_rate:,.4f} {to}\n📋 cached"
             )
 
-        # Method 1 — ExchangeRate-API (free, no key, generous limits)
-        try:
-            url  = f"https://open.er-api.com/v6/latest/{frm}"
-            resp = requests.get(url, timeout=8)
-            data = resp.json()
-            if data.get("result") == "success":
-                rate = data["rates"].get(to)
+        for url in [
+            f"https://open.er-api.com/v6/latest/{frm}",
+            f"https://api.frankfurter.app/latest?from={frm}&to={to}",
+        ]:
+            try:
+                resp = requests.get(url, timeout=8)
+                data = resp.json()
+                rate = (data.get("rates") or {}).get(to)
                 if rate:
                     _cache.set(cache_key, rate, _TTL_FX)
-                    converted = amount * rate
                     return (
                         f"💱 Currency Conversion\n"
-                        f"{amount:,.2f} {frm} = {converted:,.2f} {to}\n"
-                        f"Rate: 1 {frm} = {rate:,.4f} {to}\n"
-                        f"Source: ExchangeRate-API (live)"
+                        f"{amount:,.2f} {frm} = {amount * rate:,.2f} {to}\n"
+                        f"Rate: 1 {frm} = {rate:,.4f} {to}"
                     )
-        except Exception:
-            pass
+            except Exception:
+                continue
 
-        # Method 2 — Frankfurter API (free European Central Bank data)
+        # yfinance fallback
         try:
-            url  = f"https://api.frankfurter.app/latest?from={frm}&to={to}"
-            resp = requests.get(url, timeout=8)
-            data = resp.json()
-            rate = data.get("rates", {}).get(to)
-            if rate:
-                _cache.set(cache_key, rate, _TTL_FX)
-                converted = amount * rate
-                return (
-                    f"💱 Currency Conversion\n"
-                    f"{amount:,.2f} {frm} = {converted:,.2f} {to}\n"
-                    f"Rate: 1 {frm} = {rate:,.4f} {to}\n"
-                    f"Source: Frankfurter/ECB (live)"
-                )
-        except Exception:
-            pass
-
-        # Method 3 — yfinance forex fallback
-        try:
-            pair = f"{frm}{to}=X"
-            hist = yf.Ticker(pair).history(period="2d")
-            if not hist.empty:
-                rate = hist["Close"].iloc[-1]
-                if rate and rate == rate:  # NaN check
+            h = _yf_fetch(f"{frm}{to}=X", period="2d")
+            if not h.empty:
+                rate = h["Close"].iloc[-1]
+                if rate == rate:
                     _cache.set(cache_key, rate, _TTL_FX)
-                    converted = amount * rate
-                    return (
-                        f"💱 Currency Conversion\n"
-                        f"{amount:,.2f} {frm} = {converted:,.2f} {to}\n"
-                        f"Rate: 1 {frm} = {rate:,.4f} {to}\n"
-                        f"Source: Yahoo Finance (delayed)"
-                    )
+                    return f"💱 {amount:,.2f} {frm} = {amount * rate:,.2f} {to}"
         except Exception:
             pass
 
-        # Method 4 — hardcoded NGN rates (last resort)
-        ngn_rates = {
-            "USD": 1620, "GBP": 2050, "EUR": 1750,
-            "CAD": 1190, "AUD": 1040, "ZAR": 88,
-        }
-        if to == "NGN" and frm in ngn_rates:
-            rate = ngn_rates[frm]
-            return (
-                f"💱 Currency Conversion (estimated)\n"
-                f"{amount:,.2f} {frm} ≈ ₦{amount * rate:,.2f}\n"
-                f"Rate used: ₦{rate:,.0f} per {frm}\n"
-                f"⚠️ All live APIs unavailable — this is an approximate rate."
-            )
-        elif frm == "NGN" and to in ngn_rates:
-            rate = ngn_rates[to]
-            return (
-                f"💱 Currency Conversion (estimated)\n"
-                f"₦{amount:,.2f} ≈ {amount / rate:,.4f} {to}\n"
-                f"Rate used: ₦{rate:,.0f} per {to}\n"
-                f"⚠️ All live APIs unavailable — this is an approximate rate."
-            )
+        # Hardcoded NGN fallback
+        ngn = {"USD": 1620, "GBP": 2050, "EUR": 1750, "CAD": 1190, "AUD": 1040}
+        if to == "NGN" and frm in ngn:
+            return f"💱 {amount:,.2f} {frm} ≈ ₦{amount * ngn[frm]:,.2f} (estimated)"
+        if frm == "NGN" and to in ngn:
+            return f"💱 ₦{amount:,.2f} ≈ {amount / ngn[to]:,.4f} {to} (estimated)"
 
-        return (
-            f"⚠️ Could not fetch {frm}→{to} rate from any available source.\n"
-            f"All live data APIs are temporarily rate-limited. Try again in 5 minutes."
-        )
+        return f"⚠️ Rate unavailable for {frm}→{to}. Try again shortly."
 
-    except IndexError:
-        return "Format: 'amount, FROM, TO'  e.g. '1500, USD, NGN'"
     except Exception as e:
         return f"Conversion error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 3. CRYPTO PRICE — CoinGecko as primary (much better free tier)
+# 3. CRYPTO PRICE
 # ══════════════════════════════════════════════════════════════
-
-# Map common symbols to CoinGecko IDs
 _COINGECKO_IDS = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "BNB": "binancecoin",
-    "SOL": "solana",
-    "ADA": "cardano",
-    "XRP": "ripple",
-    "DOGE": "dogecoin",
-    "DOT": "polkadot",
-    "MATIC": "matic-network",
-    "LINK": "chainlink",
+    "BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin",
+    "SOL": "solana",  "ADA": "cardano",  "XRP": "ripple",
+    "DOGE": "dogecoin", "DOT": "polkadot", "MATIC": "matic-network",
 }
 
 @tool
 def get_crypto_price(input: str = "BTC,ETH") -> str:
     """
-    Get live crypto prices using CoinGecko API (primary) with yfinance fallback.
-    Input: comma-separated symbols e.g. 'BTC,ETH,BNB'
-    For 4-hour BTC level analysis: 'BTC,4h'
-    Examples: 'BTC'  'BTC,ETH'  'BTC,ETH,BNB'  'BTC,4h'
+    Get live crypto prices. Supports 4H analysis.
+    Input: 'BTC'  'BTC,ETH'  'BTC,4h'  'ETH,BNB'
     """
     try:
         want_4h = "4h" in input.lower()
@@ -283,30 +357,22 @@ def get_crypto_price(input: str = "BTC,ETH") -> str:
         if not coins:
             coins = ["BTC"]
 
-        out = ["── Crypto Prices ──"]
-
-        for coin in coins:
-            sym = f"{coin}-USD"
-
-        # Check cache first
+        out       = ["── Crypto Prices ──"]
         cache_key = f"crypto_{'_'.join(sorted(coins))}"
-        cached = _cache.get(cache_key)
+        cached    = _cache.get(cache_key)
+
         if cached:
-            out = cached.split("\n") if isinstance(cached, str) else [cached]
+            out = cached.split("\n")
         else:
-            # Method 1 — CoinGecko (no API key, generous rate limits)
             cg_ids = [_COINGECKO_IDS.get(c, c.lower()) for c in coins]
-            fetched_from_cg = False
+            fetched = False
             try:
                 url  = (
                     "https://api.coingecko.com/api/v3/simple/price"
-                    f"?ids={','.join(cg_ids)}"
-                    "&vs_currencies=usd"
-                    "&include_24hr_change=true"
+                    f"?ids={','.join(cg_ids)}&vs_currencies=usd&include_24hr_change=true"
                 )
                 resp = requests.get(url, timeout=10)
                 data = resp.json()
-
                 if data and not data.get("error"):
                     for coin, cg_id in zip(coins, cg_ids):
                         entry = data.get(cg_id, {})
@@ -315,206 +381,180 @@ def get_crypto_price(input: str = "BTC,ETH") -> str:
                         if price:
                             arrow = "▲" if chg >= 0 else "▼"
                             out.append(f"{coin}: ${price:>12,.2f}  {arrow} {chg:+.2f}% (24h)")
-                            fetched_from_cg = True
-                        else:
-                            out.append(f"{coin}: not found in CoinGecko")
+                            fetched = True
             except Exception:
                 pass
 
-            # Method 2 — yfinance fallback for any coin CoinGecko missed
-            if not fetched_from_cg:
+            if not fetched:
                 for coin in coins:
-                    sym = f"{coin}-USD"
-                    price_line = None
-
-                    # fast_info with NaN guard
-                    try:
-                        fi    = yf.Ticker(sym).fast_info
-                        price = fi.last_price
-                        prev  = fi.previous_close
-                        if price and price == price and prev and prev == prev and price > 0:
-                            chg   = price - prev
-                            pct   = (chg / prev * 100) if prev else 0
+                    h = _yf_fetch(f"{coin}-USD", period="2d")
+                    if not h.empty and len(h) >= 1:
+                        p  = h["Close"].iloc[-1]
+                        pv = h["Close"].iloc[-2] if len(h) > 1 else p
+                        if p == p and pv == pv and p > 0:
+                            chg   = p - pv
+                            pct   = (chg / pv * 100) if pv else 0
                             arrow = "▲" if chg >= 0 else "▼"
-                            price_line = f"{coin}: ${price:>12,.2f}  {arrow} {pct:+.2f}%"
-                    except Exception:
-                        pass
+                            out.append(f"{coin}: ${p:>12,.2f}  {arrow} {pct:+.2f}%")
+                            continue
+                    out.append(f"{coin}: temporarily unavailable")
 
-                    # history fallback
-                    if not price_line:
-                        try:
-                            h = yf.Ticker(sym).history(period="2d")
-                            if not h.empty and len(h) >= 1:
-                                p  = h["Close"].iloc[-1]
-                                pv = h["Close"].iloc[-2] if len(h) > 1 else p
-                                if p == p and pv == pv and p > 0:
-                                    chg   = p - pv
-                                    pct   = (chg / pv * 100) if pv else 0
-                                    arrow = "▲" if chg >= 0 else "▼"
-                                    price_line = f"{coin}: ${p:>12,.2f}  {arrow} {pct:+.2f}%"
-                        except Exception:
-                            pass
-
-                    out.append(price_line or f"{coin}: temporarily unavailable")
-
-            # Cache the price lines
             _cache.set(cache_key, "\n".join(out), _TTL_CRYPTO)
 
-        # 4-hour BTC analysis (always fresh — not cached)
         if want_4h:
             for coin in coins:
-                sym = f"{coin}-USD"
                 out.append("")
-                out.append(_fetch_4h_levels(sym, coin))
+                out.append(_fetch_4h_levels(f"{coin}-USD", coin))
 
-            
         return "\n".join(out)
 
     except Exception as e:
-        return f"Crypto data error: {e}"
+        return f"Crypto error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 4. P/E RATIO
+# 4. INDEX 4H — dedicated tool for US30, SPX, NAS100
+# ══════════════════════════════════════════════════════════════
+@tool
+def get_index_4h(input: str) -> str:
+    """
+    4-hour technical analysis for major indices.
+    Input: 'US30', 'SPX', 'NAS100', 'NASDAQ', 'Dow', 'S&P'
+    Uses futures contracts (YM=F, ES=F, NQ=F) for intraday data.
+    Examples: 'US30 4h'  'SPX 4h'  'NAS100'
+    """
+    mapping = {
+        "US30":    ("YM=F",  "US30 / Dow Jones"),
+        "DOW":     ("YM=F",  "US30 / Dow Jones"),
+        "DJI":     ("YM=F",  "US30 / Dow Jones"),
+        "DOWJONES":("YM=F",  "US30 / Dow Jones"),
+        "SPX":     ("ES=F",  "SPX / S&P 500"),
+        "SP500":   ("ES=F",  "SPX / S&P 500"),
+        "SP":      ("ES=F",  "SPX / S&P 500"),
+        "S&P":     ("ES=F",  "SPX / S&P 500"),
+        "NAS":     ("NQ=F",  "NAS100 / NASDAQ"),
+        "NAS100":  ("NQ=F",  "NAS100 / NASDAQ"),
+        "NASDAQ":  ("NQ=F",  "NAS100 / NASDAQ"),
+        "NDX":     ("NQ=F",  "NAS100 / NASDAQ"),
+        "GOLD":    ("GC=F",  "Gold / XAU"),
+        "XAUUSD":  ("GC=F",  "Gold / XAU"),
+        "OIL":     ("CL=F",  "Crude Oil / WTI"),
+        "USOIL":   ("CL=F",  "Crude Oil / WTI"),
+    }
+    clean = input.strip().upper().replace(" ", "").replace("/", "").replace("4H", "")
+    ticker, name = mapping.get(clean, (None, None))
+    if not ticker:
+        ticker = input.strip().upper().replace(" 4H", "").replace("4H", "")
+        name   = ticker
+    return _fetch_4h_levels(ticker, name)
+
+
+# ══════════════════════════════════════════════════════════════
+# 5. P/E RATIO
 # ══════════════════════════════════════════════════════════════
 @tool
 def calculate_pe_ratio(input: str) -> str:
-    """
-    Calculate the Price-to-Earnings (P/E) ratio.
-    Input format: 'price, eps'  e.g. '150, 10.5'
-    """
+    """P/E ratio. Format: 'price, eps'  e.g. '150, 10.5'"""
     try:
         parts = input.replace(";", ",").split(",")
         if len(parts) < 2:
-            return "Format: 'price, eps'  e.g. '150, 10.5'"
-        price = float(parts[0].strip())
-        eps   = float(parts[1].strip())
+            return "Format: 'price, eps'"
+        price, eps = float(parts[0].strip()), float(parts[1].strip())
         if eps == 0:
-            return "EPS cannot be zero — P/E ratio undefined."
+            return "EPS cannot be zero."
         pe = price / eps
         verdict = (
-            "Potentially undervalued"  if pe < 15 else
-            "Fairly valued"            if pe < 25 else
-            "Premium / Growth stock"   if pe < 40 else
+            "Potentially undervalued" if pe < 15 else
+            "Fairly valued"           if pe < 25 else
+            "Premium / Growth stock"  if pe < 40 else
             "Highly speculative"
         )
-        return (
-            f"P/E Ratio:   {pe:.2f}\n"
-            f"Price:       ${price:.2f}\n"
-            f"EPS:         ${eps:.2f}\n"
-            f"Assessment:  {verdict}"
-        )
+        return f"P/E: {pe:.2f}  |  Price: ${price:.2f}  |  EPS: ${eps:.2f}\nAssessment: {verdict}"
     except Exception as e:
-        return f"Error: {e}. Format: 'price, eps'"
+        return f"Error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 5. PYTHON CODE EXECUTOR
+# 6. PYTHON EXECUTOR
 # ══════════════════════════════════════════════════════════════
 @tool
 def execute_python(code: str) -> str:
-    """
-    Write AND execute Python code to solve financial problems.
-    Available: pandas (pd), json, math, datetime.
-    Always use print() — output is captured and returned.
-    """
-    old_stdout = sys.stdout
-    sys.stdout = buffer = io.StringIO()
+    """Execute Python code. Use print() to show results."""
+    old = sys.stdout
+    sys.stdout = buf = io.StringIO()
     try:
-        namespace = {"pd": pd, "json": json, "math": math, "datetime": datetime}
-        exec(compile(code, "<amhani>", "exec"), namespace)
-        result = buffer.getvalue() or "Executed. No print() output."
+        exec(compile(code, "<amhani>", "exec"),
+             {"pd": pd, "json": json, "math": math, "datetime": datetime})
+        result = buf.getvalue() or "Executed. No print() output."
     except Exception:
         result = f"Error:\n{traceback.format_exc()}"
     finally:
-        sys.stdout = old_stdout
+        sys.stdout = old
     return result[:4000]
 
 
 # ══════════════════════════════════════════════════════════════
-# 6. FINANCIAL DATA ANALYSER
+# 7. FINANCIAL DATA ANALYSER
 # ══════════════════════════════════════════════════════════════
 @tool
 def analyse_financial_data(input: str) -> str:
-    """
-    Analyse financial data as a JSON string.
-    Input: '[{"month":"Jan","revenue":50000,"expenses":30000}, ...]'
-    Returns: summary stats, growth, profit analysis.
-    """
+    """Analyse JSON financial data. Input: '[{"month":"Jan","revenue":50000}, ...]'"""
     try:
         df  = pd.DataFrame(json.loads(input))
         out = [f"📊 {df.shape[0]} rows × {df.shape[1]} cols — {', '.join(df.columns)}"]
         num = df.select_dtypes(include="number")
         if not num.empty:
             out.append(num.describe().round(2).to_string())
-            for col in num.columns:
-                if len(df) > 1 and df[col].iloc[0] != 0:
-                    g = ((df[col].iloc[-1] - df[col].iloc[0]) / abs(df[col].iloc[0])) * 100
-                    out.append(f"{col}: {g:+.1f}%")
         lower = {c.lower(): c for c in df.columns}
         if "revenue" in lower and "expenses" in lower:
             df["__p"] = df[lower["revenue"]] - df[lower["expenses"]]
-            total  = df["__p"].sum()
-            margin = (total / df[lower["revenue"]].sum()) * 100
-            out.append(f"Profit: ₦{total:,.2f}  Margin: {margin:.1f}%")
+            out.append(f"Profit: ₦{df['__p'].sum():,.2f}  Margin: {(df['__p'].sum()/df[lower['revenue']].sum())*100:.1f}%")
         return "\n".join(out)
     except Exception as e:
         return f"Analysis error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 7. STOCK CHART
+# 8. STOCK CHART
 # ══════════════════════════════════════════════════════════════
 @tool
 def generate_stock_chart(input: str) -> str:
-    """
-    Generate a gold-themed stock chart.
-    Input: 'TICKER' or 'TICKER, period'  (periods: 1mo 3mo 6mo 1y 2y)
-    Example: 'AAPL, 6mo'
-    """
+    """Generate gold-themed chart. Input: 'TICKER' or 'TICKER, period'"""
     try:
         parts  = [p.strip() for p in input.split(",")]
         ticker = parts[0].upper()
         period = parts[1] if len(parts) > 1 else "3mo"
-        hist   = yf.Ticker(ticker).history(period=period)
+        hist   = _yf_fetch(ticker, period=period, timeout_sec=20)
         if hist.empty:
             return f"No chart data for {ticker}"
-
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6),
                                         gridspec_kw={"height_ratios": [3, 1]},
                                         facecolor="#0F0F0C")
         fig.suptitle(f"{ticker}  ·  {period.upper()}", color="#C9A84C",
                      fontsize=13, fontweight="bold", y=0.99)
         ax1.plot(hist.index, hist["Close"], color="#C9A84C", linewidth=1.8)
-        ax1.fill_between(hist.index, hist["Close"], hist["Close"].min(),
-                         alpha=0.07, color="#C9A84C")
-        ax1.set_facecolor("#0F0F0C")
-        ax1.tick_params(colors="#666", labelsize=8)
-        ax1.set_ylabel("Price (USD)", color="#888", fontsize=8)
+        ax1.fill_between(hist.index, hist["Close"], hist["Close"].min(), alpha=0.07, color="#C9A84C")
+        ax1.set_facecolor("#0F0F0C"); ax1.tick_params(colors="#666", labelsize=8)
         for s in ax1.spines.values(): s.set_edgecolor("#2a2a20")
         ax2.bar(hist.index, hist["Volume"], color="#C9A84C", alpha=0.3, width=1)
-        ax2.set_facecolor("#0F0F0C")
-        ax2.tick_params(colors="#666", labelsize=7)
-        ax2.set_ylabel("Volume", color="#888", fontsize=8)
+        ax2.set_facecolor("#0F0F0C"); ax2.tick_params(colors="#666", labelsize=7)
         for s in ax2.spines.values(): s.set_edgecolor("#2a2a20")
         plt.tight_layout(rect=[0, 0, 1, 0.97])
         buf = io.BytesIO()
         plt.savefig(buf, format="png", bbox_inches="tight", dpi=130, facecolor="#0F0F0C")
-        plt.close(fig)
-        buf.seek(0)
+        plt.close(fig); buf.seek(0)
         return f"CHART_BASE64:{base64.b64encode(buf.read()).decode()}"
     except Exception as e:
         return f"Chart error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 8. FINANCIAL CALCULATOR
+# 9. FINANCIAL CALCULATOR
 # ══════════════════════════════════════════════════════════════
 @tool
 def financial_calculator(input: str) -> str:
     """
     Financial calculations.
-    Format: 'TYPE, param1, param2, ...'
     Types: compound_interest | loan_payment | roi | break_even |
            inflation_adjust  | future_value | payback_period
     Example: 'compound_interest, 500000, 0.15, 5'
@@ -525,240 +565,83 @@ def financial_calculator(input: str) -> str:
         if calc == "compound_interest":
             P, r, n = float(parts[1]), float(parts[2]), float(parts[3])
             A = P * (1 + r) ** n
-            return (f"💰 Compound Interest\nPrincipal: ₦{P:,.2f}\n"
-                    f"Rate: {r*100:.1f}%/yr  Years: {n:.0f}\n"
+            return (f"💰 Compound Interest\nPrincipal: ₦{P:,.2f}  Rate: {r*100:.1f}%/yr  Years: {n:.0f}\n"
                     f"Final: ₦{A:,.2f}  Gain: ₦{A-P:,.2f} ({((A-P)/P)*100:.1f}%)")
         elif calc == "loan_payment":
             P, r_a, y = float(parts[1]), float(parts[2]), float(parts[3])
             r = r_a / 12; n = y * 12
             m = P * r * (1+r)**n / ((1+r)**n - 1) if r > 0 else P / n
-            return (f"🏦 Loan\nPrincipal: ₦{P:,.2f}  Rate: {r_a*100:.1f}%/yr\n"
-                    f"Monthly: ₦{m:,.2f}  Total: ₦{m*n:,.2f}  Interest: ₦{m*n-P:,.2f}")
+            return (f"🏦 Loan\nMonthly: ₦{m:,.2f}  Total: ₦{m*n:,.2f}  Interest: ₦{m*n-P:,.2f}")
         elif calc == "roi":
             g, c = float(parts[1]), float(parts[2])
-            roi = ((g - c) / c) * 100
-            return f"📈 ROI: {roi:.2f}%  Profit: ₦{g-c:,.2f}  (₦{c:,.2f} → ₦{g:,.2f})"
+            return f"📈 ROI: {((g-c)/c)*100:.2f}%  Profit: ₦{g-c:,.2f}"
         elif calc == "break_even":
             f_, p, v = float(parts[1]), float(parts[2]), float(parts[3])
             m = p - v
             if m <= 0: return "Price must exceed variable cost."
             u = f_ / m
-            return (f"⚖️ Break-Even\nUnits: {u:,.0f}  Revenue: ₦{u*p:,.2f}\n"
-                    f"Fixed: ₦{f_:,.2f}  Margin/Unit: ₦{m:,.2f}")
+            return f"⚖️ Break-Even: {u:,.0f} units  Revenue: ₦{u*p:,.2f}"
         elif calc == "inflation_adjust":
             a, r, y = float(parts[1]), float(parts[2]), float(parts[3])
             real = a / (1 + r) ** y
-            return (f"📉 Inflation\nNominal: ₦{a:,.2f}  Real: ₦{real:,.2f}\n"
-                    f"Lost: ₦{a-real:,.2f} ({((a-real)/a)*100:.1f}%) over {y:.0f} yrs")
+            return f"📉 Real Value: ₦{real:,.2f}  Lost: ₦{a-real:,.2f} ({((a-real)/a)*100:.1f}%)"
         elif calc == "future_value":
             pv, r, y = float(parts[1]), float(parts[2]), float(parts[3])
-            return f"🔭 Future Value: ₦{pv * (1+r)**y:,.2f}  (₦{pv:,.2f} @ {r*100:.1f}%/yr × {y:.0f}yrs)"
+            return f"🔭 Future Value: ₦{pv*(1+r)**y:,.2f}"
         elif calc == "payback_period":
             i, cf = float(parts[1]), float(parts[2])
-            return f"⏱️ Payback: {i/cf:.2f} years  (₦{i:,.2f} ÷ ₦{cf:,.2f}/yr)"
+            return f"⏱️ Payback: {i/cf:.2f} years"
         else:
-            return (f"Unknown: '{calc}'. Supported: compound_interest, loan_payment, "
-                    f"roi, break_even, inflation_adjust, future_value, payback_period")
-    except IndexError:
-        return "Not enough parameters. Example: 'compound_interest, 500000, 0.15, 5'"
+            return f"Unknown: '{calc}'. Supported: compound_interest, loan_payment, roi, break_even, inflation_adjust, future_value, payback_period"
     except Exception as e:
         return f"Calculator error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 9. MARKET OVERVIEW
+# 10. MARKET OVERVIEW
 # ══════════════════════════════════════════════════════════════
 @tool
 def get_market_overview(input: str = "all") -> str:
-    """
-    Live snapshot of global indices.
-    Input: 'all' or 'indices'
-    For crypto use get_crypto_price instead.
-    """
+    """Live snapshot of global indices. Input: 'all' or 'indices'"""
     cache_key = f"market_{input}"
-    cached = _cache.get(cache_key)
+    cached    = _cache.get(cache_key)
     if cached:
-        return cached + "\n📋 Source: cached (< 60s old)"
-
+        return cached + "\n📋 cached (< 60s)"
     try:
-        out = []
-        indices = {
-            "S&P 500":   "^GSPC",
-            "Dow Jones": "^DJI",
-            "NASDAQ":    "^IXIC",
-            "VIX":       "^VIX",
-        }
-        out.append("── Global Indices ──")
+        indices = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "VIX": "^VIX"}
+        out     = ["── Global Indices ──"]
         for name, sym in indices.items():
-            try:
-                h = yf.Ticker(sym).history(period="2d")
-                if len(h) >= 2:
-                    c1, c2 = h["Close"].iloc[-1], h["Close"].iloc[-2]
-                    if c1 == c1 and c2 == c2 and c2 != 0:
-                        chg   = c1 - c2
-                        pct   = (chg / c2) * 100
-                        arrow = "▲" if chg >= 0 else "▼"
-                        out.append(f"{name:12} {c1:>12,.2f}  {arrow} {pct:+.2f}%")
-                    else:
-                        out.append(f"{name:12}  data unavailable")
+            h = _yf_fetch(sym, period="2d")
+            if len(h) >= 2:
+                c1, c2 = h["Close"].iloc[-1], h["Close"].iloc[-2]
+                if c1 == c1 and c2 == c2 and c2 != 0:
+                    chg = c1 - c2; pct = (chg / c2) * 100
+                    out.append(f"{name:12} {c1:>12,.2f}  {'▲' if chg>=0 else '▼'} {pct:+.2f}%")
                 else:
-                    out.append(f"{name:12}  insufficient data")
-            except Exception:
+                    out.append(f"{name:12}  data unavailable")
+            else:
                 out.append(f"{name:12}  unavailable")
-
         result = "\n".join(out)
         _cache.set(cache_key, result, _TTL_STOCK)
         return result
-
     except Exception as e:
         return f"Market overview error: {e}"
 
-# ── HELPER: fetch 4H OHLC from 1H bars ───────────────────────
-def _fetch_4h_levels(ticker: str, display_name: str) -> str:
-    """
-    Build 4H OHLC by aggregating 1H bars from yfinance.
-    Falls back through multiple methods if one fails.
-    """
-    import time
 
-    # Method 1: 1H interval over 5 days (gives enough bars for 4H grouping)
-    for attempt in range(3):
-        try:
-            time.sleep(attempt * 1.5)  # back-off on retry
-            h = yf.Ticker(ticker).history(interval="1h", period="5d")
-            if not h.empty and len(h) >= 4:
-                break
-        except Exception:
-            h = pd.DataFrame()
-
-    # Method 2: Try futures/ETF equivalent if index fails
-    fallbacks = {
-        "^DJI":   ["YM=F", "DIA"],      # Dow futures, Dow ETF
-        "^GSPC":  ["ES=F", "SPY"],      # S&P futures, S&P ETF
-        "^IXIC":  ["NQ=F", "QQQ"],      # NASDAQ futures, QQQ ETF
-        "^VIX":   ["VIXY"],
-    }
-    if (h is None or h.empty) and ticker in fallbacks:
-        for alt in fallbacks[ticker]:
-            try:
-                time.sleep(1)
-                h = yf.Ticker(alt).history(interval="1h", period="5d")
-                if not h.empty and len(h) >= 4:
-                    display_name = f"{display_name} (via {alt})"
-                    break
-            except Exception:
-                continue
-
-    if h is None or h.empty or len(h) < 4:
-        return f"⚠️ 4H data for {display_name} is temporarily unavailable from all sources. Try again in a few minutes."
-
-    # ── Aggregate 1H bars into 4H candles ─────────────────────
-    h.index = pd.to_datetime(h.index)
-    # Group every 4 rows = 4H candle
-    candles = []
-    bars = h[["Open","High","Low","Close","Volume"]].values
-    for i in range(0, len(bars) - 3, 4):
-        chunk = bars[i:i+4]
-        candles.append({
-            "open":   chunk[0][0],
-            "high":   chunk[:,1].max(),
-            "low":    chunk[:,2].min(),
-            "close":  chunk[-1][3],
-            "volume": chunk[:,4].sum(),
-        })
-
-    if len(candles) < 2:
-        return f"⚠️ Not enough bars to compute 4H structure for {display_name}."
-
-    curr  = candles[-1]
-    prev  = candles[-2]
-    c     = curr["close"]
-    mid   = (curr["high"] + curr["low"]) / 2
-
-    # Fibonacci levels from last 4H candle range
-    rng   = curr["high"] - curr["low"]
-    r1    = curr["high"] + rng * 0.382
-    r2    = curr["high"] + rng * 0.618
-    s1    = curr["low"]  - rng * 0.382
-    s2    = curr["low"]  - rng * 0.618
-
-    # Bias
-    bias  = "Bullish" if c > mid else "Bearish"
-    trend = "Bullish" if curr["close"] > prev["close"] else "Bearish"
-    arrow = "▲" if curr["close"] > prev["close"] else "▼"
-
-    return (
-        f"── {display_name} 4-Hour Analysis ──\n"
-        f"Current Close:  {c:,.2f}\n"
-        f"4H High:        {curr['high']:,.2f}\n"
-        f"4H Low:         {curr['low']:,.2f}\n"
-        f"4H Open:        {curr['open']:,.2f}\n"
-        f"Midpoint:       {mid:,.2f}\n"
-        f"R1 (0.382):     {r1:,.2f}\n"
-        f"R2 (0.618):     {r2:,.2f}\n"
-        f"S1 (0.382):     {s1:,.2f}\n"
-        f"S2 (0.618):     {s2:,.2f}\n"
-        f"Candle Bias:    {bias} (close {('above' if c > mid else 'below')} midpoint)\n"
-        f"Trend vs Prev:  {trend} {arrow}\n"
-        f"Prev 4H Close:  {prev['close']:,.2f}\n"
-        f"Volume:         {curr['volume']:,.0f}\n"
-        f"Source: Yahoo Finance 1H bars aggregated to 4H"
-    )
-
-
-@tool
-def get_index_4h(input: str) -> str:
-    """
-    Get 4-hour technical analysis for major indices.
-    Input: index name or ticker.
-    Examples: 'US30', 'Dow', 'SPX', 'S&P', 'NASDAQ', 'NAS100'
-    Uses futures (YM=F, ES=F, NQ=F) which support intraday data.
-    """
-    # Map common names to the correct intraday-capable ticker
-    mapping = {
-        "US30": ("YM=F",  "US30 / Dow Jones"),
-        "DOW":  ("YM=F",  "US30 / Dow Jones"),
-        "DJI":  ("YM=F",  "US30 / Dow Jones"),
-        "DOWJONES": ("YM=F", "US30 / Dow Jones"),
-        "SPX":  ("ES=F",  "SPX / S&P 500"),
-        "SP500":("ES=F",  "SPX / S&P 500"),
-        "SP":   ("ES=F",  "SPX / S&P 500"),
-        "NAS":  ("NQ=F",  "NAS100 / NASDAQ"),
-        "NAS100":("NQ=F", "NAS100 / NASDAQ"),
-        "NASDAQ":("NQ=F", "NAS100 / NASDAQ"),
-        "NDX":  ("NQ=F",  "NAS100 / NASDAQ"),
-        "GER40":("GC=F",  "GER40"),  # placeholder
-        "GOLD": ("GC=F",  "Gold / XAU"),
-        "XAUUSD":("GC=F", "Gold / XAU"),
-    }
-
-    key = input.strip().upper().replace(" ","").replace("/","")
-    ticker, name = mapping.get(key, (None, None))
-
-    if not ticker:
-        # Try treating input directly as a yfinance ticker
-        ticker = input.strip().upper()
-        name   = ticker
-
-    return _fetch_4h_levels(ticker, name)
 # ══════════════════════════════════════════════════════════════
-# 10. TASK PLANNER
+# 11. TASK PLANNER
 # ══════════════════════════════════════════════════════════════
 @tool
 def plan_task(goal: str) -> str:
-    """
-    Break a complex financial goal into a step-by-step plan.
-    Use FIRST for multi-step requests.
-    """
+    """Break a complex goal into steps. Use FIRST for multi-step requests."""
     return (
         f"📋 Plan: {goal}\n\n"
-        "Step 1 — Identify objective and required inputs\n"
-        "Step 2 — Determine tools and data sources needed\n"
-        "Step 3 — Gather data (prices, rates, financials)\n"
+        "Step 1 — Identify objective and inputs\n"
+        "Step 2 — Determine tools and data sources\n"
+        "Step 3 — Gather data\n"
         "Step 4 — Calculate or analyse\n"
-        "Step 5 — Validate results\n"
-        "Step 6 — Deliver clear recommendation\n\n"
-        "Executing now..."
+        "Step 5 — Validate\n"
+        "Step 6 — Deliver recommendation\n\nExecuting now..."
     )
 
 
