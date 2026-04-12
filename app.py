@@ -1,26 +1,44 @@
 # =============================================================
 # app.py — AMHANi ENTERPRISE · Streamlit Interface
-# NVIDIA FIX 3 — SCROLL BUTTONS:
-#   Previous fix changed <a> to <button> which stopped the
-#   unwanted page navigation. But buttons still did nothing
-#   because window.scrollTo() and document.documentElement
-#   do NOT work in Streamlit — body/html have overflow:hidden.
-#   Streamlit's actual scroll container varies by version:
-#     v1.28+  →  [data-testid="stAppViewContainer"]
-#     v1.x    →  section.main
-#     older   →  .main
-#   FIX: the onclick now iterates ALL candidate containers and
-#   sets scrollTop on every one of them simultaneously.
-#   At least one will be the real scroll container.
-#   For scroll-to-bottom: finds the element with the largest
-#   scrollHeight and scrolls that one.
+#
+# SCROLL BUTTON — DEFINITIVE FIX (analysis of all 4 attempts):
+#
+#   Approach 1: <a> in st.markdown → page navigation. FAIL.
+#   Approach 2: <button> blast-all-containers in st.markdown →
+#     buttons appear but scrollTop has no effect. Streamlit's
+#     HTML is inside a React-managed div; html/body have
+#     overflow:hidden; window.scrollTo() is a no-op. FAIL.
+#   Approach 3 (doc uploaded by user): components.html() +
+#     window.parent.document → CORRECT INSIGHT. components.html()
+#     renders inside an iframe. window.parent.document is the
+#     real Streamlit DOM. Buttons injected into parentDoc.body
+#     float correctly and can scroll the real container.
+#     Had a race condition but the right architecture.
+#   Approach 4 (user's second snippet): components.html() but
+#     document.querySelector() without window.parent → queries
+#     the iframe's own empty DOM, finds nothing, falls back to
+#     documentElement which is not scrollable. FAIL.
+#
+#   FINAL SOLUTION: components.html() iframe + window.parent
+#   ----------------------------------------------------------
+#   - Script runs inside the components.html iframe
+#   - window.parent.document targets the actual Streamlit page
+#   - Style + button elements injected into parentDoc.body
+#   - Guard IDs prevent double-injection on Streamlit reruns
+#   - getContainer() queries parentDoc (not local doc) and
+#     picks the element with the largest scrollHeight
+#   - MutationObserver on the real container for auto-scroll
+#     and "New message ↓" badge when user has scrolled up
+#   - Retry loop (up to 20 × 300ms) waits for Streamlit paint
 # =============================================================
 
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 load_dotenv()
 
+# ── Page config — MUST be the very first Streamlit call ───────
 st.set_page_config(
     page_title="CONSULTAMHANi",
     page_icon="✦",
@@ -28,204 +46,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-import streamlit.components.v1 as components
-
-components.html("""
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-  /* Reset iframe body so it takes zero space */
-  html, body {
-    margin: 0; padding: 0;
-    width: 0; height: 0;
-    overflow: hidden;
-    background: transparent;
-  }
-</style>
-</head>
-<body>
-
-<!-- 
-  These elements are injected into the PARENT document by the script below.
-  Nothing is rendered inside the iframe itself.
--->
-
-<script>
-(function () {
-
-  // ── 1. Escape the iframe — target the real Streamlit page ──
-  var parentDoc = window.parent.document;
-  var parentWin = window.parent;
-
-  // ── 2. Inject button styles into parent <head> ─────────────
-  // We do this once; a guard prevents double-injection on reruns.
-  if (!parentDoc.getElementById("amhani-scroll-styles")) {
-    var style = parentDoc.createElement("style");
-    style.id = "amhani-scroll-styles";
-    style.textContent = [
-      ".amhani-scroll-btn {",
-      "  position: fixed;",
-      "  right: 1.2rem;",
-      "  width: 42px;",
-      "  height: 42px;",
-      "  border-radius: 50%;",
-      "  background: linear-gradient(135deg, #E8C97A, #C9A84C);",
-      "  color: #080807;",
-      "  border: none;",
-      "  cursor: pointer;",
-      "  font-size: 1.4rem;",
-      "  font-weight: 700;",
-      "  display: none;",
-      "  align-items: center;",
-      "  justify-content: center;",
-      "  z-index: 999999;",
-      "  box-shadow: 0 3px 14px rgba(201,168,76,0.45);",
-      "  transition: transform 0.15s, box-shadow 0.15s;",
-      "  line-height: 1;",
-      "  padding: 0;",
-      "}",
-      ".amhani-scroll-btn:hover {",
-      "  transform: scale(1.12);",
-      "  box-shadow: 0 5px 20px rgba(201,168,76,0.6);",
-      "}",
-      "#amhani-scroll-top { bottom: 5.5rem; }",
-      "#amhani-scroll-bot { bottom: 1.2rem; }",
-      "#amhani-new-msg {",
-      "  position: fixed;",
-      "  right: 1.2rem;",
-      "  bottom: 7.8rem;",
-      "  background: #C9A84C;",
-      "  color: #080807;",
-      "  padding: 5px 12px;",
-      "  border-radius: 20px;",
-      "  font-size: 0.72rem;",
-      "  font-weight: 600;",
-      "  display: none;",
-      "  cursor: pointer;",
-      "  z-index: 999999;",
-      "  box-shadow: 0 2px 10px rgba(201,168,76,0.4);",
-      "}",
-    ].join("\n");
-    parentDoc.head.appendChild(style);
-  }
-
-  // ── 3. Inject buttons into parent <body> ───────────────────
-  if (!parentDoc.getElementById("amhani-scroll-top")) {
-    var btnTop = parentDoc.createElement("button");
-    btnTop.id        = "amhani-scroll-top";
-    btnTop.className = "amhani-scroll-btn";
-    btnTop.innerHTML = "&#8679;";
-    btnTop.title     = "Scroll to top";
-    parentDoc.body.appendChild(btnTop);
-
-    var btnBot = parentDoc.createElement("button");
-    btnBot.id        = "amhani-scroll-bot";
-    btnBot.className = "amhani-scroll-btn";
-    btnBot.innerHTML = "&#8681;";
-    btnBot.title     = "Scroll to bottom";
-    parentDoc.body.appendChild(btnBot);
-
-    var newMsg = parentDoc.createElement("div");
-    newMsg.id        = "amhani-new-msg";
-    newMsg.innerHTML = "New message &#8681;";
-    parentDoc.body.appendChild(newMsg);
-  }
-
-  // ── 4. Find the real scrollable Streamlit container ────────
-  function getScrollContainer() {
-    var selectors = [
-      "[data-testid='stAppViewContainer']",
-      "[data-testid='stMainBlockContainer']",
-      "section.main",
-      ".main",
-    ];
-    for (var i = 0; i < selectors.length; i++) {
-      var el = parentDoc.querySelector(selectors[i]);
-      if (el && el.scrollHeight > el.clientHeight) {
-        return el;
-      }
-    }
-    var all = parentDoc.querySelectorAll("div");
-    var best = null, bestH = 0;
-    for (var j = 0; j < all.length; j++) {
-      var d = all[j];
-      if (d.scrollHeight > d.clientHeight && d.scrollHeight > bestH) {
-        bestH = d.scrollHeight;
-        best  = d;
-      }
-    }
-    return best || parentDoc.documentElement;
-  }
-
-  // ── 5. Wire up behaviour ───────────────────────────────────
-  function init() {
-    var container = getScrollContainer();
-
-    var userScrolledUp = false;
-
-    var btnTop = parentDoc.getElementById("amhani-scroll-top");
-    var btnBot = parentDoc.getElementById("amhani-scroll-bot");
-    var badge  = parentDoc.getElementById("amhani-new-msg");
-
-    function scrollToBottom() {
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-    }
-    function scrollToTop() {
-      container.scrollTo({ top: 0, behavior: "smooth" });
-    }
-
-    btnTop.onclick = function () { scrollToTop(); };
-    btnBot.onclick = function () { scrollToBottom(); };
-    badge.onclick  = function () {
-      scrollToBottom();
-      badge.style.display = "none";
-      userScrolledUp = false;
-    };
-
-    container.addEventListener("scroll", function () {
-      var fromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      var atBottom   = fromBottom < 60;
-      userScrolledUp = !atBottom;
-
-      btnTop.style.display = container.scrollTop > 200 ? "flex" : "none";
-      btnBot.style.display = !atBottom             ? "flex" : "none";
-      if (atBottom) badge.style.display = "none";
-    });
-
-    var observer = new MutationObserver(function () {
-      if (!userScrolledUp) {
-        scrollToBottom();
-      } else {
-        badge.style.display = "block";
-      }
-    });
-    observer.observe(container, { childList: true, subtree: true });
-
-    setTimeout(scrollToBottom, 600);
-  }
-
-  // ── 6. Wait for Streamlit to finish painting ───────────────
-  var attempts = 0;
-  function waitForContainer() {
-    attempts++;
-    var c = getScrollContainer();
-    if (c && c.scrollHeight > 100) {
-      init();
-    } else if (attempts < 15) {
-      setTimeout(waitForContainer, 200);
-    }
-  }
-
-  setTimeout(waitForContainer, 500);
-
-})();
-</script>
-
-</body>
-</html>
-""", height=0, scrolling=False)
-
+# ── All other imports after set_page_config ───────────────────
 from agent import run_agent, sync_memory, llm
 from auth import (
     render_auth_ui,
@@ -246,6 +67,179 @@ from limiter import (
 from memory_store import load_memory, extract_and_save_facts
 from payments import create_subscription_link
 from chat_store import save_message, load_messages, clear_chat
+
+
+# ════════════════════════════════════════════════════════════════
+# SCROLL BUTTONS — injected via iframe into parent Streamlit DOM
+#
+# WHY components.html() + window.parent works:
+#   Streamlit serves everything on the same origin. The iframe
+#   created by components.html() has allow-same-origin so
+#   window.parent.document is accessible without CORS errors.
+#   Buttons injected into parentDoc.body sit at the top of the
+#   real page stacking context, so position:fixed works correctly
+#   and scrollTop on the real scroll container has full effect.
+#
+# WHY height=0 / scrolling=False:
+#   The iframe contributes zero visual space. All visible output
+#   (buttons, badge) lives in the parent document, not the iframe.
+# ════════════════════════════════════════════════════════════════
+components.html("""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  html,body{ margin:0;padding:0;width:0;height:0;overflow:hidden;background:transparent; }
+</style>
+</head>
+<body>
+<script>
+(function(){
+
+  // ── Access the real Streamlit page, not this iframe ──────
+  var P   = window.parent;
+  var doc = P.document;
+
+  // ── Inject styles into parent <head> once ────────────────
+  // Guard ID prevents re-injection on every Streamlit rerun.
+  if (!doc.getElementById("amhani-scroll-style")) {
+    var s = doc.createElement("style");
+    s.id  = "amhani-scroll-style";
+    s.textContent = `
+      .amhani-btn {
+        position:fixed; right:1.2rem;
+        width:42px; height:42px; border-radius:50%;
+        background:linear-gradient(135deg,#E8C97A,#C9A84C);
+        color:#080807; border:none; cursor:pointer;
+        font-size:1.35rem; font-weight:700;
+        display:none; align-items:center; justify-content:center;
+        z-index:999999; padding:0; line-height:1;
+        box-shadow:0 3px 14px rgba(201,168,76,0.45);
+        transition:transform .15s,box-shadow .15s;
+      }
+      .amhani-btn:hover{
+        transform:scale(1.12);
+        box-shadow:0 5px 20px rgba(201,168,76,0.6);
+      }
+      #amhani-top{ bottom:5.5rem; }
+      #amhani-bot{ bottom:1.2rem; }
+      #amhani-badge{
+        position:fixed; right:1.2rem; bottom:7.8rem;
+        background:#C9A84C; color:#080807;
+        padding:5px 12px; border-radius:20px;
+        font-size:0.72rem; font-weight:600; font-family:sans-serif;
+        display:none; cursor:pointer; z-index:999999;
+        box-shadow:0 2px 10px rgba(201,168,76,0.4);
+      }
+    `;
+    doc.head.appendChild(s);
+  }
+
+  // ── Inject buttons into parent <body> once ───────────────
+  if (!doc.getElementById("amhani-top")) {
+    ["amhani-top","amhani-bot"].forEach(function(id,i){
+      var b   = doc.createElement("button");
+      b.id    = id;
+      b.className = "amhani-btn";
+      b.innerHTML = i===0 ? "&#8679;" : "&#8681;";
+      b.title     = i===0 ? "Scroll to top" : "Scroll to bottom";
+      doc.body.appendChild(b);
+    });
+    var badge = doc.createElement("div");
+    badge.id  = "amhani-badge";
+    badge.innerHTML = "New message &#8681;";
+    doc.body.appendChild(badge);
+  }
+
+  // ── Find the real scrollable container in parent DOM ─────
+  // Queries parentDoc, NOT the iframe's own document.
+  // Picks the element with the largest scrollable area.
+  // This is the single most important fix vs approach 4.
+  function getContainer(){
+    var selectors = [
+      "[data-testid='stAppViewContainer']",
+      "[data-testid='stMainBlockContainer']",
+      "section.main",
+      ".main"
+    ];
+    for(var i=0;i<selectors.length;i++){
+      var el = doc.querySelector(selectors[i]);
+      if(el && el.scrollHeight > el.clientHeight + 10) return el;
+    }
+    // Fallback: scan all divs, return the tallest scrollable one
+    var best=null, bestH=0;
+    doc.querySelectorAll("div").forEach(function(d){
+      if(d.scrollHeight > d.clientHeight && d.scrollHeight > bestH){
+        bestH = d.scrollHeight; best = d;
+      }
+    });
+    return best;
+  }
+
+  // ── Wire everything up once container is available ────────
+  function init(){
+    var container = getContainer();
+    if(!container){ return false; }
+
+    var btnTop = doc.getElementById("amhani-top");
+    var btnBot = doc.getElementById("amhani-bot");
+    var badge  = doc.getElementById("amhani-badge");
+    var userUp = false;
+
+    function toBottom(){
+      container.scrollTo({top:container.scrollHeight, behavior:"smooth"});
+    }
+    function toTop(){
+      container.scrollTo({top:0, behavior:"smooth"});
+    }
+
+    btnTop.onclick = toTop;
+    btnBot.onclick = toBottom;
+    badge.onclick  = function(){
+      toBottom();
+      badge.style.display = "none";
+      userUp = false;
+    };
+
+    // Show/hide buttons based on scroll position
+    container.addEventListener("scroll", function(){
+      var fromBot = container.scrollHeight - container.scrollTop - container.clientHeight;
+      var atBot   = fromBot < 60;
+      userUp      = !atBot;
+      btnTop.style.display = container.scrollTop > 200 ? "flex" : "none";
+      btnBot.style.display = !atBot ? "flex" : "none";
+      if(atBot) badge.style.display = "none";
+    });
+
+    // Auto-scroll on new messages; show badge if user scrolled up
+    var observer = new MutationObserver(function(){
+      if(!userUp){
+        toBottom();
+      } else {
+        badge.style.display = "block";
+      }
+    });
+    observer.observe(container, {childList:true, subtree:true});
+
+    // Scroll to bottom on initial load
+    P.setTimeout(toBottom, 600);
+    return true;
+  }
+
+  // ── Retry until Streamlit has finished painting ───────────
+  var tries = 0;
+  function tryInit(){
+    tries++;
+    if(init()) return;           // success
+    if(tries < 20) P.setTimeout(tryInit, 300);  // retry up to 20×
+  }
+  P.setTimeout(tryInit, 400);
+
+})();
+</script>
+</body>
+</html>
+""", height=0, scrolling=False)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -272,7 +266,6 @@ html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
     font-size: 0.58rem; letter-spacing: 0.42em;
     color: rgba(201,168,76,0.4); text-transform: uppercase; margin-top: 4px;
 }
-
 .user-bubble {
     background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.2);
     border-radius: 12px 12px 2px 12px; padding: 0.9rem 1.2rem;
@@ -288,19 +281,18 @@ html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
     font-size: 0.55rem; letter-spacing: 0.28em; color: #C9A84C;
     text-transform: uppercase; margin-bottom: 0.3rem; font-weight: 600;
 }
-
-.usage-dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 1.2rem; }
-.dot-active { width:10px; height:10px; border-radius:50%; background:#C9A84C; display:inline-block; }
-.dot-used   { width:10px; height:10px; border-radius:50%; background:#8B6914; opacity:0.35; display:inline-block; }
-.dot-warn   { width:10px; height:10px; border-radius:50%; background:#c94c4c; display:inline-block; }
+.usage-dots { display:flex; gap:8px; justify-content:center; margin-bottom:1.2rem; }
+.dot-active { width:10px;height:10px;border-radius:50%;background:#C9A84C;display:inline-block; }
+.dot-used   { width:10px;height:10px;border-radius:50%;background:#8B6914;opacity:0.35;display:inline-block; }
+.dot-warn   { width:10px;height:10px;border-radius:50%;background:#c94c4c;display:inline-block; }
 
 .plan-badge {
     display:inline-block; font-size:0.58rem; letter-spacing:0.18em;
     text-transform:uppercase; font-weight:700; padding:2px 8px;
     border-radius:3px; margin-left:8px; vertical-align:middle;
 }
-.badge-pro  { background: linear-gradient(135deg,#E8C97A,#C9A84C); color:#080807; }
-.badge-free { background: rgba(201,168,76,0.1); color:#C9A84C; border:1px solid rgba(201,168,76,0.3); }
+.badge-pro  { background:linear-gradient(135deg,#E8C97A,#C9A84C); color:#080807; }
+.badge-free { background:rgba(201,168,76,0.1); color:#C9A84C; border:1px solid rgba(201,168,76,0.3); }
 
 .paywall-card {
     background:rgba(201,168,76,0.05); border:1px solid rgba(201,168,76,0.3);
@@ -312,13 +304,21 @@ html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
 
 div[data-testid="stTextInput"] input,
 div[data-testid="stTextArea"] textarea {
-    background: #161610 !important; border: 1px solid rgba(201,168,76,0.2) !important;
-    color: #FAFAF7 !important; border-radius: 3px !important;
+    background:#161610 !important; border:1px solid rgba(201,168,76,0.2) !important;
+    color:#FAFAF7 !important; border-radius:3px !important;
 }
 div[data-testid="stTextInput"] input:focus,
 div[data-testid="stTextArea"] textarea:focus {
-    border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
+    border-color:rgba(201,168,76,0.55) !important; box-shadow:none !important;
 }
+.stButton > button {
+    background:linear-gradient(135deg,#E8C97A,#C9A84C) !important;
+    color:#080807 !important; font-weight:600 !important;
+    border:none !important; border-radius:3px !important;
+    letter-spacing:0.1em !important; font-size:0.75rem !important;
+}
+.stButton > button:hover { opacity:0.88 !important; }
+hr { border-color:rgba(201,168,76,0.12) !important; }
 </style>
 """, unsafe_allow_html=True)
 
