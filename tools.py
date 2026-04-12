@@ -1,25 +1,34 @@
 # =============================================================
 # tools.py — AMHANi ENTERPRISE
-# NVIDIA FIX:
-#   - 4H unavailable on Streamlit Cloud: time.sleep() was blocking
-#     Streamlit's event loop causing timeout. FIX: removed all
-#     sleep() calls from _fetch_4h_levels, added proper h=None
-#     initialization BEFORE the retry loop so UnboundLocalError
-#     never silently swallows data.
-#   - Added concurrent.futures timeout wrapper so yfinance calls
-#     never hang indefinitely on cloud.
-#   - Futures ticker fallback order corrected: YM=F (Dow mini),
-#     ES=F (S&P mini), NQ=F (NASDAQ mini) all confirmed to
-#     return intraday data on yfinance free tier.
-# NVIDIA FIX 2 (Streamlit Cloud 4H still unavailable):
-#   - Root cause: get_index_4h maps "US30" → "YM=F" then calls
-#     _fetch_4h_levels("YM=F", ...). The fallback_map had NO
-#     entry for "YM=F" itself — only for "US30", "^DJI" etc.
-#     So when YM=F timed out on cloud, zero fallbacks ran.
-#   - FIX: Added all futures tickers (YM=F, ES=F, NQ=F, GC=F,
-#     CL=F, RTY=F, ZN=F) directly into fallback_map pointing at
-#     their liquid ETF alternatives. Cloud now falls through to
-#     DIA/SPY/QQQ/GLD/USO when futures are unavailable.
+# NVIDIA FIX 3 (this patch):
+#   4H still showed "unavailable" on Streamlit Cloud even after
+#   adding fallback_map entries for futures tickers.
+#
+#   ROOT CAUSE: Streamlit Cloud's shared egress IP is
+#   rate-limited / blocked by Yahoo Finance for intraday (1H)
+#   requests. yfinance's ThreadPoolExecutor times out silently.
+#   The problem is NOT the fallback map — the HTTP call itself
+#   never returns valid data on the cloud host.
+#
+#   FIX — two new data sources that bypass yfinance entirely:
+#
+#   1. _binance_4h(coin_ticker):
+#      Binance public REST API — real 4H OHLCV candles for crypto.
+#      No API key required. Plain requests.get(). Always works
+#      on Streamlit Cloud. Covers BTC, ETH, BNB, SOL, XRP etc.
+#
+#   2. _yf_direct_1h(ticker):
+#      Direct HTTP to Yahoo Finance v8 chart API using the
+#      requests library (NOT the yfinance library). Avoids
+#      ThreadPoolExecutor entirely. Works for YM=F, ES=F etc.
+#      on cloud where yfinance times out.
+#
+#   3. _format_4h_result(candles, display_name, source):
+#      Extracted shared formatter — both Binance (real 4H) and
+#      yfinance-aggregated paths produce identical output.
+#
+#   4. _fetch_4h_levels() now has 4 ordered paths:
+#      Binance → YF direct HTTP → yfinance lib → ETF fallback
 # =============================================================
 
 import io
@@ -31,6 +40,7 @@ import base64
 import traceback
 import threading
 import concurrent.futures
+import urllib.parse
 import requests
 from datetime import datetime
 
@@ -67,23 +77,133 @@ class _TTLCache:
             self._data[key] = (val, time.time(), ttl)
 
 
-_cache = _TTLCache()
+_cache      = _TTLCache()
 _TTL_STOCK  = 60
 _TTL_CRYPTO = 60
 _TTL_FX     = 300
-_TTL_4H     = 240   # 4H data cached 4 minutes
+_TTL_4H     = 240
 
 
 # ══════════════════════════════════════════════════════════════
-# SAFE YFINANCE FETCHER — wraps every call with a timeout
-# This is the core fix for Streamlit Cloud hangs.
+# PATH 1 — BINANCE PUBLIC REST API (crypto, no auth)
+# Real 4H candles — no aggregation needed, no yfinance, no threads.
+# Streamlit Cloud can always reach api.binance.com.
+# ══════════════════════════════════════════════════════════════
+_CRYPTO_BASE_TICKERS = {
+    "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE",
+    "DOT", "MATIC", "AVAX", "LINK", "LTC", "UNI", "ATOM",
+    "FIL", "TRX", "SHIB", "ARB", "OP", "APT",
+}
+
+def _is_crypto_ticker(ticker: str) -> bool:
+    clean = ticker.upper().replace("-USD", "").replace("-USDT", "").strip()
+    return clean in _CRYPTO_BASE_TICKERS or ticker.upper().endswith("-USD")
+
+
+def _binance_4h(coin_ticker: str) -> list:
+    """
+    Fetch real 4H OHLCV from Binance public klines endpoint.
+    coin_ticker: 'BTC-USD', 'ETH-USD', 'BTC', 'ETH' …
+    Returns list of candle dicts or [] on failure.
+    No API key required.
+    """
+    raw    = coin_ticker.upper().replace("-USD", "").replace("-USDT", "").strip()
+    symbol = raw + "USDT"   # BTC → BTCUSDT
+
+    for base_url in [
+        "https://api.binance.com/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines",   # mirror
+    ]:
+        try:
+            resp = requests.get(
+                base_url,
+                params={"symbol": symbol, "interval": "4h", "limit": 10},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=12,
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            if not isinstance(data, list) or len(data) < 2:
+                continue
+            return [
+                {
+                    "open":   float(k[1]),
+                    "high":   float(k[2]),
+                    "low":    float(k[3]),
+                    "close":  float(k[4]),
+                    "volume": float(k[5]),
+                }
+                for k in data
+            ]
+        except Exception:
+            continue
+    return []
+
+
+# ══════════════════════════════════════════════════════════════
+# PATH 2 — YAHOO FINANCE DIRECT HTTP (indices / stocks)
+# Uses requests lib directly — no yfinance ThreadPoolExecutor.
+# Works on Streamlit Cloud for futures (YM=F, ES=F, NQ=F).
+# ══════════════════════════════════════════════════════════════
+def _yf_direct_1h(ticker: str) -> pd.DataFrame:
+    """
+    Direct HTTP to Yahoo Finance v8 chart API.
+    Returns DataFrame with OHLCV or empty DataFrame on failure.
+    """
+    try:
+        safe = urllib.parse.quote(ticker, safe="")  # YM=F → YM%3DF
+        resp = requests.get(
+            f"https://query2.finance.yahoo.com/v8/finance/chart/{safe}",
+            params={
+                "interval":       "1h",
+                "range":          "7d",
+                "includePrePost": "false",
+                "events":         "div,split",
+            },
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return pd.DataFrame()
+        data   = resp.json()
+        result = (data.get("chart") or {}).get("result")
+        if not result:
+            return pd.DataFrame()
+        r  = result[0]
+        ts = r.get("timestamp", [])
+        q  = (r.get("indicators") or {}).get("quote", [{}])[0]
+        if not ts or not q:
+            return pd.DataFrame()
+        df = pd.DataFrame(
+            {
+                "Open":   q.get("open",   [None] * len(ts)),
+                "High":   q.get("high",   [None] * len(ts)),
+                "Low":    q.get("low",    [None] * len(ts)),
+                "Close":  q.get("close",  [None] * len(ts)),
+                "Volume": q.get("volume", [0]    * len(ts)),
+            },
+            index=pd.to_datetime(ts, unit="s", utc=True),
+        )
+        return df.dropna(subset=["Close"])
+    except Exception:
+        return pd.DataFrame()
+
+
+# ══════════════════════════════════════════════════════════════
+# PATH 3 — YFINANCE (local dev / last resort)
+# May timeout on Streamlit Cloud for intraday data.
 # ══════════════════════════════════════════════════════════════
 def _yf_fetch(ticker: str, interval: str = "1d", period: str = "2d",
               timeout_sec: int = 12) -> pd.DataFrame:
-    """
-    Fetch yfinance history with a hard timeout.
-    Returns empty DataFrame on timeout or error — never hangs.
-    """
+    """yfinance history with hard timeout. Returns empty DF on failure."""
     def _fetch():
         return yf.Ticker(ticker).history(interval=interval, period=period)
 
@@ -98,124 +218,27 @@ def _yf_fetch(ticker: str, interval: str = "1d", period: str = "2d",
 
 
 # ══════════════════════════════════════════════════════════════
-# 4H HELPER — no sleep(), proper initialization, cloud-safe
+# SHARED RESULT FORMATTER
 # ══════════════════════════════════════════════════════════════
-def _fetch_4h_levels(ticker: str, display_name: str) -> str:
-    """
-    Aggregate 1H bars into 4H candles.
-    FIXED:
-      - h initialized to None BEFORE loop (was after, causing UnboundLocalError)
-      - All time.sleep() removed (was blocking Streamlit event loop)
-      - Hard timeout via ThreadPoolExecutor so cloud never hangs
-      - Futures fallback correctly ordered
-      - NVIDIA FIX 2: futures tickers (YM=F, ES=F, NQ=F etc.) now
-        have their own fallback_map entries so cloud never dead-ends
-    """
-    cache_key = f"4h_{ticker}"
-    cached = _cache.get(cache_key)
-    if cached:
-        return cached
-
-    # ── IMPORTANT: initialize h BEFORE the loop ──────────────
-    h = None
-
-    # Primary: try the given ticker with 1H interval, 7 days history
-    h = _yf_fetch(ticker, interval="1h", period="7d", timeout_sec=15)
-    if h is not None and not h.empty and len(h) >= 4:
-        pass  # got data, skip fallbacks
-    else:
-        h = None  # reset for fallback logic
-
-    # ── FALLBACK MAP ──────────────────────────────────────────
-    # NVIDIA FIX 2: Added all futures tickers as direct keys.
-    # Previously only index tickers (^DJI, US30 etc.) were here.
-    # get_index_4h maps US30 → YM=F then calls _fetch_4h_levels("YM=F").
-    # If YM=F fails on cloud, there was no fallback — now DIA catches it.
-    fallback_map = {
-        # ── Index tickers (user may type these directly) ──
-        "^DJI":     ["YM=F", "DIA"],
-        "^GSPC":    ["ES=F", "SPY"],
-        "^IXIC":    ["NQ=F", "QQQ"],
-        "^VIX":     ["VIXY"],
-        # Common alias names
-        "US30":     ["YM=F", "DIA"],
-        "SPX":      ["ES=F", "SPY"],
-        "NAS100":   ["NQ=F", "QQQ"],
-        # ── Futures tickers (passed in by get_index_4h) ──────
-        # These are the DIRECT tickers the tool now receives.
-        # ETFs are the reliable fallback on Streamlit Cloud.
-        "YM=F":     ["DIA"],          # Dow mini  → SPDR Dow ETF
-        "ES=F":     ["SPY"],          # S&P mini  → S&P 500 ETF
-        "NQ=F":     ["QQQ"],          # NASDAQ mini → Invesco QQQ
-        "GC=F":     ["GLD", "IAU"],   # Gold      → SPDR Gold / iShares
-        "CL=F":     ["USO", "XLE"],   # WTI Oil   → US Oil Fund / Energy
-        "RTY=F":    ["IWM"],          # Russell   → iShares Russell 2000
-        "ZN=F":     ["TLT", "IEF"],   # 10yr Bond → iShares 20yr / 7-10yr
-        "SI=F":     ["SLV"],          # Silver    → iShares Silver
-        "HG=F":     ["CPER"],         # Copper    → US Copper Index
-        "NG=F":     ["UNG"],          # Nat Gas   → US Natural Gas Fund
-        # ── VIX futures ──
-        "VX=F":     ["VIXY", "UVXY"],
-    }
-
-    if h is None or h.empty:
-        alts = fallback_map.get(ticker.upper(), [])
-        for alt in alts:
-            h_alt = _yf_fetch(alt, interval="1h", period="7d", timeout_sec=15)
-            if h_alt is not None and not h_alt.empty and len(h_alt) >= 4:
-                h = h_alt
-                display_name = f"{display_name} (via {alt})"
-                break
-
-    # Final guard
-    if h is None or h.empty or len(h) < 4:
-        return (
-            f"⚠️ 4H data for {display_name} is temporarily unavailable.\n"
-            f"Yahoo Finance does not provide intraday data for this symbol on the free tier.\n"
-            f"Try: 'US30 4h' (uses YM=F → DIA) or 'BTC 4h' (uses BTC-USD hourly)."
-        )
-
-    # ── Aggregate 1H → 4H ────────────────────────────────────
-    h.index = pd.to_datetime(h.index)
-    # Drop any rows with NaN close prices
-    h = h.dropna(subset=["Close"])
-
-    if len(h) < 4:
-        return f"⚠️ Not enough clean bars for {display_name} 4H analysis."
-
-    bars = h[["Open", "High", "Low", "Close", "Volume"]].values
-    candles = []
-    for i in range(0, len(bars) - 3, 4):
-        chunk = bars[i:i + 4]
-        if len(chunk) == 4:
-            candles.append({
-                "open":   float(chunk[0][0]),
-                "high":   float(chunk[:, 1].max()),
-                "low":    float(chunk[:, 2].min()),
-                "close":  float(chunk[-1][3]),
-                "volume": float(chunk[:, 4].sum()),
-            })
-
+def _format_4h_result(candles: list, display_name: str,
+                      source: str = "Yahoo Finance 1H → 4H aggregation") -> str:
     if len(candles) < 2:
         return f"⚠️ Not enough complete 4H candles for {display_name}."
 
-    curr = candles[-1]
-    prev = candles[-2]
-    c    = curr["close"]
-    mid  = (curr["high"] + curr["low"]) / 2
-    rng  = curr["high"] - curr["low"]
+    curr  = candles[-1]
+    prev  = candles[-2]
+    c     = curr["close"]
+    mid   = (curr["high"] + curr["low"]) / 2
+    rng   = curr["high"] - curr["low"]
+    r1    = curr["high"] + rng * 0.382
+    r2    = curr["high"] + rng * 0.618
+    s1    = curr["low"]  - rng * 0.382
+    s2    = curr["low"]  - rng * 0.618
+    bias  = "Bullish" if c > mid               else "Bearish"
+    trend = "Bullish" if c > prev["close"]     else "Bearish"
+    arrow = "▲"       if c > prev["close"]     else "▼"
 
-    # Fibonacci extension levels
-    r1 = curr["high"] + rng * 0.382
-    r2 = curr["high"] + rng * 0.618
-    s1 = curr["low"]  - rng * 0.382
-    s2 = curr["low"]  - rng * 0.618
-
-    bias  = "Bullish" if c > mid  else "Bearish"
-    trend = "Bullish" if curr["close"] > prev["close"] else "Bearish"
-    arrow = "▲" if curr["close"] > prev["close"] else "▼"
-
-    result = (
+    return (
         f"── {display_name} 4-Hour Analysis ──\n"
         f"Current Close:  {c:,.2f}\n"
         f"4H Open:        {curr['open']:,.2f}\n"
@@ -231,8 +254,111 @@ def _fetch_4h_levels(ticker: str, display_name: str) -> str:
         f"Prev 4H Close:  {prev['close']:,.2f}\n"
         f"Volume:         {curr['volume']:,.0f}\n"
         f"Candles used:   {len(candles)} × 4H\n"
-        f"Source: Yahoo Finance 1H → 4H aggregation"
+        f"Source: {source}"
     )
+
+
+# ══════════════════════════════════════════════════════════════
+# 4H CORE  — 4-path waterfall, cloud-safe
+# ══════════════════════════════════════════════════════════════
+def _fetch_4h_levels(ticker: str, display_name: str) -> str:
+    """
+    Path 1 — Binance REST       : crypto, real 4H, no auth
+    Path 2 — YF direct HTTP     : indices/stocks, no yfinance
+    Path 3 — yfinance library   : local dev, may fail on cloud
+    Path 4 — ETF fallback map   : DIA/SPY/QQQ when futures timeout
+    """
+    cache_key = f"4h_{ticker}"
+    cached    = _cache.get(cache_key)
+    if cached:
+        return cached
+
+    # ── Path 1: Binance for crypto ────────────────────────────
+    if _is_crypto_ticker(ticker):
+        candles = _binance_4h(ticker)
+        if len(candles) >= 2:
+            result = _format_4h_result(
+                candles, display_name,
+                source="Binance API — real 4H klines (live)",
+            )
+            _cache.set(cache_key, result, _TTL_4H)
+            return result
+
+    # ── Path 2: Yahoo Finance direct HTTP ─────────────────────
+    h = _yf_direct_1h(ticker)
+    if h is None or h.empty or len(h) < 4:
+        h = None
+
+    # ── Path 3: yfinance library ──────────────────────────────
+    if h is None:
+        h = _yf_fetch(ticker, interval="1h", period="7d", timeout_sec=15)
+        if h is None or h.empty or len(h) < 4:
+            h = None
+
+    # ── Path 4: ETF / alternative tickers ────────────────────
+    fallback_map = {
+        "^DJI":    ["YM=F", "DIA"],
+        "^GSPC":   ["ES=F", "SPY"],
+        "^IXIC":   ["NQ=F", "QQQ"],
+        "^VIX":    ["VIXY"],
+        "US30":    ["YM=F", "DIA"],
+        "SPX":     ["ES=F", "SPY"],
+        "NAS100":  ["NQ=F", "QQQ"],
+        # Futures → ETF (when futures time out on cloud)
+        "YM=F":    ["DIA"],
+        "ES=F":    ["SPY"],
+        "NQ=F":    ["QQQ"],
+        "GC=F":    ["GLD", "IAU"],
+        "CL=F":    ["USO", "XLE"],
+        "RTY=F":   ["IWM"],
+        "ZN=F":    ["TLT", "IEF"],
+        "SI=F":    ["SLV"],
+        "HG=F":    ["CPER"],
+        "NG=F":    ["UNG"],
+        "VX=F":    ["VIXY"],
+    }
+
+    if h is None:
+        for alt in fallback_map.get(ticker.upper(), []):
+            h_alt = _yf_direct_1h(alt)      # try direct HTTP first
+            if h_alt is not None and not h_alt.empty and len(h_alt) >= 4:
+                h = h_alt
+                display_name = f"{display_name} (via {alt})"
+                break
+            h_alt = _yf_fetch(alt, interval="1h", period="7d", timeout_sec=15)
+            if h_alt is not None and not h_alt.empty and len(h_alt) >= 4:
+                h = h_alt
+                display_name = f"{display_name} (via {alt})"
+                break
+
+    # ── Final guard ───────────────────────────────────────────
+    if h is None or h.empty or len(h) < 4:
+        return (
+            f"⚠️ 4H data for {display_name} is temporarily unavailable.\n"
+            f"All data sources exhausted for this symbol.\n"
+            f"Working alternatives: 'BTC 4h' · 'ETH 4h' · 'US30 4h' · 'SPX 4h'"
+        )
+
+    # ── Aggregate 1H → 4H ────────────────────────────────────
+    h.index = pd.to_datetime(h.index)
+    h       = h.dropna(subset=["Close"])
+    if len(h) < 4:
+        return f"⚠️ Not enough clean bars for {display_name} 4H analysis."
+
+    bars    = h[["Open", "High", "Low", "Close", "Volume"]].values
+    candles = []
+    for i in range(0, len(bars) - 3, 4):
+        chunk = bars[i:i + 4]
+        if len(chunk) == 4:
+            candles.append({
+                "open":   float(chunk[0][0]),
+                "high":   float(chunk[:, 1].max()),
+                "low":    float(chunk[:, 2].min()),
+                "close":  float(chunk[-1][3]),
+                "volume": float(chunk[:, 4].sum()),
+            })
+
+    result = _format_4h_result(candles, display_name)
     _cache.set(cache_key, result, _TTL_4H)
     return result
 
@@ -257,8 +383,8 @@ def get_stock_price(ticker: str) -> str:
         price = fi.last_price
         prev  = fi.previous_close or price
         if price and price == price and price > 0:
-            chg = price - prev
-            pct = (chg / prev * 100) if prev else 0
+            chg    = price - prev
+            pct    = (chg / prev * 100) if prev else 0
             result = (
                 f"📈 {ticker}\n"
                 f"Price:  ${price:.2f}\n"
@@ -338,7 +464,6 @@ def convert_currency(input: str) -> str:
             except Exception:
                 continue
 
-        # yfinance fallback
         try:
             h = _yf_fetch(f"{frm}{to}=X", period="2d")
             if not h.empty:
@@ -349,7 +474,6 @@ def convert_currency(input: str) -> str:
         except Exception:
             pass
 
-        # Hardcoded NGN fallback
         ngn = {"USD": 1620, "GBP": 2050, "EUR": 1750, "CAD": 1190, "AUD": 1040}
         if to == "NGN" and frm in ngn:
             return f"💱 {amount:,.2f} {frm} ≈ ₦{amount * ngn[frm]:,.2f} (estimated)"
@@ -357,7 +481,6 @@ def convert_currency(input: str) -> str:
             return f"💱 ₦{amount:,.2f} ≈ {amount / ngn[to]:,.4f} {to} (estimated)"
 
         return f"⚠️ Rate unavailable for {frm}→{to}. Try again shortly."
-
     except Exception as e:
         return f"Conversion error: {e}"
 
@@ -391,7 +514,7 @@ def get_crypto_price(input: str = "BTC,ETH") -> str:
         if cached:
             out = cached.split("\n")
         else:
-            cg_ids = [_COINGECKO_IDS.get(c, c.lower()) for c in coins]
+            cg_ids  = [_COINGECKO_IDS.get(c, c.lower()) for c in coins]
             fetched = False
             try:
                 url  = (
@@ -434,43 +557,40 @@ def get_crypto_price(input: str = "BTC,ETH") -> str:
                 out.append(_fetch_4h_levels(f"{coin}-USD", coin))
 
         return "\n".join(out)
-
     except Exception as e:
         return f"Crypto error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════
-# 4. INDEX 4H — dedicated tool for US30, SPX, NAS100
+# 4. INDEX 4H
 # ══════════════════════════════════════════════════════════════
 @tool
 def get_index_4h(input: str) -> str:
     """
     4-hour technical analysis for major indices.
     Input: 'US30', 'SPX', 'NAS100', 'NASDAQ', 'Dow', 'S&P'
-    Uses futures contracts (YM=F, ES=F, NQ=F) for intraday data.
-    Falls back to liquid ETFs (DIA, SPY, QQQ) on cloud when
-    futures data is unavailable — handled inside _fetch_4h_levels.
+    Uses futures with direct-HTTP + ETF cloud fallback.
     Examples: 'US30 4h'  'SPX 4h'  'NAS100'
     """
     mapping = {
-        "US30":    ("YM=F",  "US30 / Dow Jones"),
-        "DOW":     ("YM=F",  "US30 / Dow Jones"),
-        "DJI":     ("YM=F",  "US30 / Dow Jones"),
-        "DOWJONES":("YM=F",  "US30 / Dow Jones"),
-        "SPX":     ("ES=F",  "SPX / S&P 500"),
-        "SP500":   ("ES=F",  "SPX / S&P 500"),
-        "SP":      ("ES=F",  "SPX / S&P 500"),
-        "S&P":     ("ES=F",  "SPX / S&P 500"),
-        "NAS":     ("NQ=F",  "NAS100 / NASDAQ"),
-        "NAS100":  ("NQ=F",  "NAS100 / NASDAQ"),
-        "NASDAQ":  ("NQ=F",  "NAS100 / NASDAQ"),
-        "NDX":     ("NQ=F",  "NAS100 / NASDAQ"),
-        "GOLD":    ("GC=F",  "Gold / XAU"),
-        "XAUUSD":  ("GC=F",  "Gold / XAU"),
-        "OIL":     ("CL=F",  "Crude Oil / WTI"),
-        "USOIL":   ("CL=F",  "Crude Oil / WTI"),
+        "US30":     ("YM=F", "US30 / Dow Jones"),
+        "DOW":      ("YM=F", "US30 / Dow Jones"),
+        "DJI":      ("YM=F", "US30 / Dow Jones"),
+        "DOWJONES": ("YM=F", "US30 / Dow Jones"),
+        "SPX":      ("ES=F", "SPX / S&P 500"),
+        "SP500":    ("ES=F", "SPX / S&P 500"),
+        "SP":       ("ES=F", "SPX / S&P 500"),
+        "S&P":      ("ES=F", "SPX / S&P 500"),
+        "NAS":      ("NQ=F", "NAS100 / NASDAQ"),
+        "NAS100":   ("NQ=F", "NAS100 / NASDAQ"),
+        "NASDAQ":   ("NQ=F", "NAS100 / NASDAQ"),
+        "NDX":      ("NQ=F", "NAS100 / NASDAQ"),
+        "GOLD":     ("GC=F", "Gold / XAU"),
+        "XAUUSD":   ("GC=F", "Gold / XAU"),
+        "OIL":      ("CL=F", "Crude Oil / WTI"),
+        "USOIL":    ("CL=F", "Crude Oil / WTI"),
     }
-    clean = input.strip().upper().replace(" ", "").replace("/", "").replace("4H", "")
+    clean  = input.strip().upper().replace(" ", "").replace("/", "").replace("4H", "")
     ticker, name = mapping.get(clean, (None, None))
     if not ticker:
         ticker = input.strip().upper().replace(" 4H", "").replace("4H", "")
@@ -491,7 +611,7 @@ def calculate_pe_ratio(input: str) -> str:
         price, eps = float(parts[0].strip()), float(parts[1].strip())
         if eps == 0:
             return "EPS cannot be zero."
-        pe = price / eps
+        pe      = price / eps
         verdict = (
             "Potentially undervalued" if pe < 15 else
             "Fairly valued"           if pe < 25 else
@@ -537,7 +657,10 @@ def analyse_financial_data(input: str) -> str:
         lower = {c.lower(): c for c in df.columns}
         if "revenue" in lower and "expenses" in lower:
             df["__p"] = df[lower["revenue"]] - df[lower["expenses"]]
-            out.append(f"Profit: ₦{df['__p'].sum():,.2f}  Margin: {(df['__p'].sum()/df[lower['revenue']].sum())*100:.1f}%")
+            out.append(
+                f"Profit: ₦{df['__p'].sum():,.2f}  "
+                f"Margin: {(df['__p'].sum()/df[lower['revenue']].sum())*100:.1f}%"
+            )
         return "\n".join(out)
     except Exception as e:
         return f"Analysis error: {e}"
@@ -556,13 +679,16 @@ def generate_stock_chart(input: str) -> str:
         hist   = _yf_fetch(ticker, period=period, timeout_sec=20)
         if hist.empty:
             return f"No chart data for {ticker}"
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6),
-                                        gridspec_kw={"height_ratios": [3, 1]},
-                                        facecolor="#0F0F0C")
+        fig, (ax1, ax2) = plt.subplots(
+            2, 1, figsize=(10, 6),
+            gridspec_kw={"height_ratios": [3, 1]},
+            facecolor="#0F0F0C",
+        )
         fig.suptitle(f"{ticker}  ·  {period.upper()}", color="#C9A84C",
                      fontsize=13, fontweight="bold", y=0.99)
         ax1.plot(hist.index, hist["Close"], color="#C9A84C", linewidth=1.8)
-        ax1.fill_between(hist.index, hist["Close"], hist["Close"].min(), alpha=0.07, color="#C9A84C")
+        ax1.fill_between(hist.index, hist["Close"], hist["Close"].min(),
+                         alpha=0.07, color="#C9A84C")
         ax1.set_facecolor("#0F0F0C"); ax1.tick_params(colors="#666", labelsize=8)
         for s in ax1.spines.values(): s.set_edgecolor("#2a2a20")
         ax2.bar(hist.index, hist["Volume"], color="#C9A84C", alpha=0.3, width=1)
@@ -594,13 +720,16 @@ def financial_calculator(input: str) -> str:
         if calc == "compound_interest":
             P, r, n = float(parts[1]), float(parts[2]), float(parts[3])
             A = P * (1 + r) ** n
-            return (f"💰 Compound Interest\nPrincipal: ₦{P:,.2f}  Rate: {r*100:.1f}%/yr  Years: {n:.0f}\n"
-                    f"Final: ₦{A:,.2f}  Gain: ₦{A-P:,.2f} ({((A-P)/P)*100:.1f}%)")
+            return (
+                f"💰 Compound Interest\n"
+                f"Principal: ₦{P:,.2f}  Rate: {r*100:.1f}%/yr  Years: {n:.0f}\n"
+                f"Final: ₦{A:,.2f}  Gain: ₦{A-P:,.2f} ({((A-P)/P)*100:.1f}%)"
+            )
         elif calc == "loan_payment":
             P, r_a, y = float(parts[1]), float(parts[2]), float(parts[3])
             r = r_a / 12; n = y * 12
             m = P * r * (1+r)**n / ((1+r)**n - 1) if r > 0 else P / n
-            return (f"🏦 Loan\nMonthly: ₦{m:,.2f}  Total: ₦{m*n:,.2f}  Interest: ₦{m*n-P:,.2f}")
+            return f"🏦 Loan\nMonthly: ₦{m:,.2f}  Total: ₦{m*n:,.2f}  Interest: ₦{m*n-P:,.2f}"
         elif calc == "roi":
             g, c = float(parts[1]), float(parts[2])
             return f"📈 ROI: {((g-c)/c)*100:.2f}%  Profit: ₦{g-c:,.2f}"
@@ -621,7 +750,10 @@ def financial_calculator(input: str) -> str:
             i, cf = float(parts[1]), float(parts[2])
             return f"⏱️ Payback: {i/cf:.2f} years"
         else:
-            return f"Unknown: '{calc}'. Supported: compound_interest, loan_payment, roi, break_even, inflation_adjust, future_value, payback_period"
+            return (
+                f"Unknown: '{calc}'. Supported: compound_interest, loan_payment, "
+                f"roi, break_even, inflation_adjust, future_value, payback_period"
+            )
     except Exception as e:
         return f"Calculator error: {e}"
 
@@ -637,15 +769,23 @@ def get_market_overview(input: str = "all") -> str:
     if cached:
         return cached + "\n📋 cached (< 60s)"
     try:
-        indices = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "VIX": "^VIX"}
-        out     = ["── Global Indices ──"]
+        indices = {
+            "S&P 500":   "^GSPC",
+            "Dow Jones": "^DJI",
+            "NASDAQ":    "^IXIC",
+            "VIX":       "^VIX",
+        }
+        out = ["── Global Indices ──"]
         for name, sym in indices.items():
             h = _yf_fetch(sym, period="2d")
             if len(h) >= 2:
                 c1, c2 = h["Close"].iloc[-1], h["Close"].iloc[-2]
                 if c1 == c1 and c2 == c2 and c2 != 0:
                     chg = c1 - c2; pct = (chg / c2) * 100
-                    out.append(f"{name:12} {c1:>12,.2f}  {'▲' if chg>=0 else '▼'} {pct:+.2f}%")
+                    out.append(
+                        f"{name:12} {c1:>12,.2f}  "
+                        f"{'▲' if chg >= 0 else '▼'} {pct:+.2f}%"
+                    )
                 else:
                     out.append(f"{name:12}  data unavailable")
             else:

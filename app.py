@@ -1,17 +1,19 @@
 # =============================================================
 # app.py — AMHANi ENTERPRISE · Streamlit Interface
-# FIXES APPLIED:
-#   - SyntaxError: CSS was split across two st.markdown blocks,
-#     leaving raw CSS outside a string. FIX: merged into ONE
-#     st.markdown block containing ALL styles + scroll buttons.
-#   - Logout indentation bug: for loop fell outside the if block.
-#     FIX: corrected indentation.
-#   - Subscribe button typo: "Subscrib# 29,009" → "Subscribe — ₦9,999"
-#   - NVIDIA FIX: Scroll buttons used <a> tags without href.
-#     In Streamlit's environment <a> tags trigger page navigation
-#     instead of running onclick. FIX: replaced with <button>
-#     elements. Also updated JS to target Streamlit's actual
-#     scrollable container (.main) with window fallback.
+# NVIDIA FIX 3 — SCROLL BUTTONS:
+#   Previous fix changed <a> to <button> which stopped the
+#   unwanted page navigation. But buttons still did nothing
+#   because window.scrollTo() and document.documentElement
+#   do NOT work in Streamlit — body/html have overflow:hidden.
+#   Streamlit's actual scroll container varies by version:
+#     v1.28+  →  [data-testid="stAppViewContainer"]
+#     v1.x    →  section.main
+#     older   →  .main
+#   FIX: the onclick now iterates ALL candidate containers and
+#   sets scrollTop on every one of them simultaneously.
+#   At least one will be the real scroll container.
+#   For scroll-to-bottom: finds the element with the largest
+#   scrollHeight and scrolls that one.
 # =============================================================
 
 import os
@@ -19,7 +21,6 @@ import streamlit as st
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── Page config — MUST be the very first Streamlit call ───────
 st.set_page_config(
     page_title="CONSULTAMHANi",
     page_icon="✦",
@@ -27,7 +28,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── All other imports come AFTER set_page_config ──────────────
 from agent import run_agent, sync_memory, llm
 from auth import (
     render_auth_ui,
@@ -51,16 +51,7 @@ from chat_store import save_message, load_messages, clear_chat
 
 
 # ════════════════════════════════════════════════════════════════
-# GLOBAL STYLES — ONE single st.markdown block for ALL CSS
-# BUG FIX: Previously split into two blocks; CSS outside a string
-# caused "SyntaxError: invalid decimal literal" on rem values.
-#
-# SCROLL BUTTON FIX:
-#   OLD: <a> tags — browsers treat <a> without href as navigation
-#        triggers; Streamlit's sandbox routes them as page links.
-#   NEW: <button> tags — no default navigation behaviour.
-#        JS targets .main (Streamlit's scroll container) first,
-#        falls back to window for safety.
+# GLOBAL STYLES + SCROLL BUTTONS
 # ════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -69,155 +60,95 @@ st.markdown("""
 html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
 .stApp { background: #080807; color: #FAFAF7; }
 
-/* ── Header ── */
 .amhani-header {
-    text-align: center;
-    padding: 2.5rem 0 1.2rem;
-    border-bottom: 1px solid rgba(201,168,76,0.15);
-    margin-bottom: 1.5rem;
+    text-align: center; padding: 2.5rem 0 1.2rem;
+    border-bottom: 1px solid rgba(201,168,76,0.15); margin-bottom: 1.5rem;
 }
 .amhani-wordmark {
-    font-family: 'Cinzel', serif;
-    font-size: 2rem;
-    font-weight: 600;
+    font-family: 'Cinzel', serif; font-size: 2rem; font-weight: 600;
     letter-spacing: 0.25em;
     background: linear-gradient(135deg, #E8C97A, #C9A84C, #8B6914);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .amhani-sub {
-    font-size: 0.58rem;
-    letter-spacing: 0.42em;
-    color: rgba(201,168,76,0.4);
-    text-transform: uppercase;
-    margin-top: 4px;
+    font-size: 0.58rem; letter-spacing: 0.42em;
+    color: rgba(201,168,76,0.4); text-transform: uppercase; margin-top: 4px;
 }
 
-/* ── Chat bubbles ── */
 .user-bubble {
-    background: rgba(201,168,76,0.08);
-    border: 1px solid rgba(201,168,76,0.2);
-    border-radius: 12px 12px 2px 12px;
-    padding: 0.9rem 1.2rem;
-    margin: 0.5rem 0 0.5rem 2rem;
-    font-size: 0.88rem;
-    color: #FAFAF7;
-    line-height: 1.7;
+    background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 12px 12px 2px 12px; padding: 0.9rem 1.2rem;
+    margin: 0.5rem 0 0.5rem 2rem; font-size: 0.88rem; color: #FAFAF7; line-height: 1.7;
 }
 .agent-bubble {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px 12px 12px 2px;
-    padding: 0.9rem 1.2rem;
-    margin: 0.5rem 2rem 0.5rem 0;
-    font-size: 0.88rem;
-    color: #FAFAF7;
-    line-height: 1.8;
-    white-space: pre-wrap;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px 12px 12px 2px; padding: 0.9rem 1.2rem;
+    margin: 0.5rem 2rem 0.5rem 0; font-size: 0.88rem; color: #FAFAF7;
+    line-height: 1.8; white-space: pre-wrap;
 }
 .agent-label {
-    font-size: 0.55rem;
-    letter-spacing: 0.28em;
-    color: #C9A84C;
-    text-transform: uppercase;
-    margin-bottom: 0.3rem;
-    font-weight: 600;
+    font-size: 0.55rem; letter-spacing: 0.28em; color: #C9A84C;
+    text-transform: uppercase; margin-bottom: 0.3rem; font-weight: 600;
 }
 
-/* ── Usage dots ── */
 .usage-dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 1.2rem; }
 .dot-active { width:10px; height:10px; border-radius:50%; background:#C9A84C; display:inline-block; }
 .dot-used   { width:10px; height:10px; border-radius:50%; background:#8B6914; opacity:0.35; display:inline-block; }
 .dot-warn   { width:10px; height:10px; border-radius:50%; background:#c94c4c; display:inline-block; }
 
-/* ── Plan badge ── */
 .plan-badge {
-    display: inline-block;
-    font-size: 0.58rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-left: 8px;
-    vertical-align: middle;
+    display:inline-block; font-size:0.58rem; letter-spacing:0.18em;
+    text-transform:uppercase; font-weight:700; padding:2px 8px;
+    border-radius:3px; margin-left:8px; vertical-align:middle;
 }
 .badge-pro  { background: linear-gradient(135deg,#E8C97A,#C9A84C); color:#080807; }
 .badge-free { background: rgba(201,168,76,0.1); color:#C9A84C; border:1px solid rgba(201,168,76,0.3); }
 
-/* ── Paywall card ── */
 .paywall-card {
-    background: rgba(201,168,76,0.05);
-    border: 1px solid rgba(201,168,76,0.3);
-    border-radius: 8px;
-    padding: 2.5rem 2rem;
-    text-align: center;
-    margin: 1.5rem 0;
+    background:rgba(201,168,76,0.05); border:1px solid rgba(201,168,76,0.3);
+    border-radius:8px; padding:2.5rem 2rem; text-align:center; margin:1.5rem 0;
 }
 .paywall-title { font-family:'Cinzel',serif; font-size:1.5rem; color:#C9A84C; letter-spacing:0.18em; margin-bottom:0.6rem; }
 .paywall-body  { font-size:0.82rem; color:rgba(250,250,247,0.55); line-height:1.8; margin-bottom:1.5rem; }
 .paywall-price { font-size:0.78rem; color:rgba(250,250,247,0.35); margin-top:0.8rem; }
 
-/* ── Inputs ── */
 div[data-testid="stTextInput"] input,
 div[data-testid="stTextArea"] textarea {
-    background: #161610 !important;
-    border: 1px solid rgba(201,168,76,0.2) !important;
-    color: #FAFAF7 !important;
-    border-radius: 3px !important;
+    background: #161610 !important; border: 1px solid rgba(201,168,76,0.2) !important;
+    color: #FAFAF7 !important; border-radius: 3px !important;
 }
 div[data-testid="stTextInput"] input:focus,
 div[data-testid="stTextArea"] textarea:focus {
-    border-color: rgba(201,168,76,0.55) !important;
-    box-shadow: none !important;
+    border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
 }
 
-/* ── Buttons ── */
 .stButton > button {
     background: linear-gradient(135deg,#E8C97A,#C9A84C) !important;
-    color: #080807 !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 3px !important;
-    letter-spacing: 0.1em !important;
-    font-size: 0.75rem !important;
+    color: #080807 !important; font-weight: 600 !important;
+    border: none !important; border-radius: 3px !important;
+    letter-spacing: 0.1em !important; font-size: 0.75rem !important;
 }
 .stButton > button:hover { opacity: 0.88 !important; }
 hr { border-color: rgba(201,168,76,0.12) !important; }
 
-/* ── Scroll buttons (fixed, bottom-right) ────────────────────
-   FIX: Changed from <a> to <button> to prevent page navigation.
-   <a> tags in Streamlit's rendered HTML are intercepted and
-   treated as navigation links even when onclick is set.
-   <button> elements have no default navigation behaviour.
+/* ── Scroll buttons ──────────────────────────────────────────
+   position:fixed so they float over the chat at bottom-right.
+   <button> not <a> — no navigation side-effect.
    ─────────────────────────────────────────────────────────── */
 .scroll-btn {
-    position: fixed;
-    right: 1.2rem;
-    width: 40px;
-    height: 40px;
+    position: fixed; right: 1.2rem; width: 40px; height: 40px;
     border-radius: 50%;
     background: linear-gradient(135deg, #E8C97A, #C9A84C);
-    color: #080807;
-    border: none;
-    cursor: pointer;
-    font-size: 1.3rem;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    color: #080807; border: none; cursor: pointer;
+    font-size: 1.3rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
     box-shadow: 0 3px 12px rgba(201,168,76,0.35);
-    z-index: 9999;
-    transition: transform 0.2s, box-shadow 0.2s;
-    line-height: 1;
-    user-select: none;
-    padding: 0;
-    outline: none;
+    z-index: 9999; padding: 0; outline: none; line-height: 1;
+    transition: transform 0.15s, box-shadow 0.15s;
 }
 .scroll-btn:hover {
     transform: scale(1.12);
     box-shadow: 0 5px 18px rgba(201,168,76,0.5);
-    color: #080807;
 }
 #scroll-top { bottom: 5.2rem; }
 #scroll-bot { bottom: 1.0rem; }
@@ -225,28 +156,41 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
 
 <!--
   SCROLL BUTTONS — FIX SUMMARY
-  Problem: <a> tags without href in Streamlit's unsafe_allow_html
-           context get treated as page navigation links. Clicking
-           them navigated to the current URL (reload) or elsewhere
-           instead of scrolling.
-  Fix:     Use <button> elements. Buttons have no default navigation.
-           The JS targets .main first (Streamlit's scroll container)
-           then falls back to window.scrollTo for safety.
-           window.parent is NOT used — Streamlit Community Cloud
-           renders the app in the same window context as the HTML.
+  Problem: buttons clicked but page did not scroll.
+  Root cause: Streamlit sets overflow:hidden on html/body.
+    window.scrollTo() and document.documentElement.scrollTop
+    have no effect. The real scroll container is one of:
+      [data-testid="stAppViewContainer"]  (Streamlit 1.28+)
+      section.main                        (Streamlit 1.x)
+      .main                               (older versions)
+  Fix: blast ALL candidates at once with scrollTop = 0.
+    One of them will be the live scroll container.
+    For scroll-to-bottom: pick the tallest scrollable container.
 -->
-<button id="scroll-top" class="scroll-btn"
-   onclick="(function(){var m=document.querySelector('.main');if(m){m.scrollTop=0;}else{window.scrollTo({top:0,behavior:'smooth'});}})();"
-   title="Scroll to top">&#8679;</button>
+<button id="scroll-top" class="scroll-btn" title="Scroll to top"
+  onclick="
+    var ids=['[data-testid=stAppViewContainer]','[data-testid=stMainBlockContainer]','section.main','.main','[data-testid=stVerticalBlock]'];
+    for(var i=0;i<ids.length;i++){var e=document.querySelector(ids[i]);if(e)e.scrollTop=0;}
+    document.documentElement.scrollTop=0;document.body.scrollTop=0;
+  ">&#8679;</button>
 
-<button id="scroll-bot" class="scroll-btn"
-   onclick="(function(){var m=document.querySelector('.main');if(m){m.scrollTop=m.scrollHeight;}else{window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}})();"
-   title="Scroll to bottom">&#8681;</button>
+<button id="scroll-bot" class="scroll-btn" title="Scroll to bottom"
+  onclick="
+    var ids=['[data-testid=stAppViewContainer]','[data-testid=stMainBlockContainer]','section.main','.main','[data-testid=stVerticalBlock]'];
+    var best=null,bestH=0;
+    for(var i=0;i<ids.length;i++){
+      var e=document.querySelector(ids[i]);
+      if(e&&e.scrollHeight>bestH){bestH=e.scrollHeight;best=e;}
+    }
+    if(best){best.scrollTop=best.scrollHeight;}
+    document.documentElement.scrollTop=document.documentElement.scrollHeight;
+    document.body.scrollTop=document.body.scrollHeight;
+  ">&#8681;</button>
 """, unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════
-# HELPERS — defined here so available everywhere below
+# HELPERS
 # ════════════════════════════════════════════════════════════════
 def _safe_rerun():
     try:
@@ -256,7 +200,6 @@ def _safe_rerun():
 
 
 def render_response_content(content: str) -> None:
-    """Render plain text or base64 chart inline."""
     if "CHART_BASE64:" in content:
         parts = content.split("CHART_BASE64:", 1)
         if parts[0].strip():
@@ -277,16 +220,10 @@ def render_response_content(content: str) -> None:
 
 
 # ════════════════════════════════════════════════════════════════
-# SESSION RESTORE — must run before any auth check
-# Reads refresh_token from encrypted browser cookies and silently
-# restores the Supabase session so refresh does NOT log users out.
+# SESSION RESTORE
 # ════════════════════════════════════════════════════════════════
 try_restore_from_cookies()
 
-
-# ════════════════════════════════════════════════════════════════
-# SAFE SESSION STATE DEFAULTS — before auth gate
-# ════════════════════════════════════════════════════════════════
 if "visitor_id" not in st.session_state:
     st.session_state.visitor_id = get_visitor_id()
 if "is_subscriber" not in st.session_state:
@@ -294,7 +231,7 @@ if "is_subscriber" not in st.session_state:
 
 
 # ════════════════════════════════════════════════════════════════
-# AUTH GATE — show login if not signed in
+# AUTH GATE
 # ════════════════════════════════════════════════════════════════
 if not is_logged_in():
     st.markdown(
@@ -309,14 +246,13 @@ if not is_logged_in():
 
 
 # ════════════════════════════════════════════════════════════════
-# POST-LOGIN SETUP — user_id is confirmed non-empty from here down
+# POST-LOGIN SETUP
 # ════════════════════════════════════════════════════════════════
 user_email = get_user_email()
 user_id    = get_user_id()
 is_sub     = check_subscription(user_id)
 st.session_state.is_subscriber = is_sub
 
-# Load chat history from Supabase ONCE per login session
 if not st.session_state.get("history_loaded"):
     raw_msgs = load_messages(user_id, limit=100)
     st.session_state.messages = [
@@ -372,10 +308,8 @@ with col_email:
         unsafe_allow_html=True,
     )
 with col_logout:
-    # BUG FIX: indentation was broken — for loop was outside the if block
     if st.button("Exit", key="logout_btn"):
         logout()
-        # Clear ALL session state on explicit logout
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         _safe_rerun()
@@ -410,10 +344,7 @@ for msg in st.session_state.get("messages", []):
     if not content:
         continue
     if msg["role"] == "user":
-        st.markdown(
-            f'<div class="user-bubble">{content}</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f'<div class="user-bubble">{content}</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="agent-label">✦ AMHANi</div>', unsafe_allow_html=True)
         render_response_content(content)
@@ -434,7 +365,6 @@ if not is_sub and is_limited(st.session_state.visitor_id):
     )
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # BUG FIX: was "Subscrib# 29,009" — hash broke the string
         if st.button("\u2746  Subscribe \u2014 \u20a69,999 / month", use_container_width=True):
             link = create_subscription_link(user_email, user_id)
             if link:
@@ -452,7 +382,7 @@ if not is_sub and is_limited(st.session_state.visitor_id):
 
 
 # ════════════════════════════════════════════════════════════════
-# WELCOME MESSAGE (only when history is empty)
+# WELCOME MESSAGE
 # ════════════════════════════════════════════════════════════════
 if not st.session_state.get("messages"):
     greeting = (
@@ -477,17 +407,12 @@ if not st.session_state.get("messages"):
 
 
 # ════════════════════════════════════════════════════════════════
-# DEFERRED MEMORY SAVE — non-blocking background task
-# Runs on next natural Streamlit rerun, never blocks the UI.
+# DEFERRED MEMORY SAVE
 # ════════════════════════════════════════════════════════════════
 if st.session_state.get("_pending_memory"):
     pending = st.session_state.pop("_pending_memory")
     try:
-        extract_and_save_facts(
-            pending["user_id"],
-            pending["conversation"],
-            llm,
-        )
+        extract_and_save_facts(pending["user_id"], pending["conversation"], llm)
     except Exception:
         pass
 
@@ -502,42 +427,27 @@ if question:
     if not question:
         st.stop()
 
-    # Show user message
-    st.markdown(
-        f'<div class="user-bubble">{question}</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div class="user-bubble">{question}</div>', unsafe_allow_html=True)
 
-    # Save to session + Supabase immediately
     st.session_state.messages.append({"role": "user", "content": question})
     if user_id:
         save_message(user_id, "user", question)
 
-    # Increment free usage counter
     if not is_sub:
         increment_usage(st.session_state.visitor_id)
 
-    # Build short-term memory from last 6 confirmed pairs
-    history = sync_memory(st.session_state.messages[:-1])
-
-    # Long-term memory (capped at 400 chars to avoid prompt bloat)
+    history   = sync_memory(st.session_state.messages[:-1])
     long_term = ""
     if user_id:
-        raw = load_memory(user_id)
+        raw       = load_memory(user_id)
         long_term = raw[:400] if raw else ""
 
-    # Run agent
     with st.spinner("AMHANi is thinking..."):
-        result = run_agent(
-            question,
-            long_term_context=long_term,
-            chat_history=history,
-        )
+        result = run_agent(question, long_term_context=long_term, chat_history=history)
 
     answer = result.get("output", "I encountered an issue. Please try again.")
     steps  = result.get("intermediate_steps", [])
 
-    # Reasoning expander — steps are 3-tuples (name, input, result)
     if steps:
         label = f"\U0001f9e0 Reasoning \u2014 {len(steps)} step{'s' if len(steps) > 1 else ''}"
         with st.expander(label, expanded=False):
@@ -551,20 +461,15 @@ if question:
                 if i < len(steps) - 1:
                     st.divider()
 
-    # Render final answer
     st.markdown('<div class="agent-label">\u2746 AMHANi</div>', unsafe_allow_html=True)
     render_response_content(answer)
 
-    # Save to session + Supabase
     st.session_state.messages.append({"role": "assistant", "content": answer})
     if user_id:
         save_message(user_id, "assistant", answer)
 
-    # Queue background memory extraction for next rerun
     if user_id:
         st.session_state["_pending_memory"] = {
             "user_id":      user_id,
             "conversation": f"User: {question}\nAgent: {answer}",
         }
-
-    # No st.rerun() here — Streamlit handles it naturally
