@@ -169,70 +169,78 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
 <!-- BUTTONS -->
 <button id="scroll-top" class="scroll-btn">↑</button>
 <button id="scroll-bot" class="scroll-btn">↓</button>
+<div id="new-msg">New message ↓</div>
 
 <script>
 
-// FIND REAL STREAMLIT SCROLL CONTAINER
-function getScrollContainer() {
-    const selectors = [
-        '[data-testid="stAppViewContainer"]',
-        '[data-testid="stMainBlockContainer"]',
-        'section.main',
-        '.main',
-        '[data-testid="stVerticalBlock"]'
-    ];
-
-    for (let sel of selectors) {
-        let el = document.querySelector(sel);
-        if (el && el.scrollHeight > el.clientHeight) {
-            return el;
+function waitForContainer(callback) {
+    const interval = setInterval(() => {
+        const el = document.querySelector('[data-testid="stAppViewContainer"]');
+        if (el) {
+            clearInterval(interval);
+            callback(el);
         }
+    }, 100);
+}
+
+waitForContainer((container) => {
+
+    let userScrolledUp = false;
+
+    function scrollToBottom() {
+        container.scrollTo({
+            top: container.scrollHeight,
+            behavior: "smooth"
+        });
     }
 
-    return document.documentElement;
-}
+    function scrollToTop() {
+        container.scrollTo({
+            top: 0,
+            behavior: "smooth"
+        });
+    }
 
-// SCROLL TOP
-function scrollTopSmooth() {
-    let attempts = 0;
+    document.getElementById("scroll-top").onclick = scrollToTop;
+    document.getElementById("scroll-bot").onclick = scrollToBottom;
 
-    const interval = setInterval(() => {
-        const el = getScrollContainer();
-        if (el) {
-            el.scrollTo({ top: 0, behavior: "smooth" });
+    container.addEventListener("scroll", () => {
+        const atBottom =
+            container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+
+        userScrolledUp = !atBottom;
+
+        document.getElementById("scroll-top").style.display =
+            container.scrollTop > 200 ? "flex" : "none";
+
+        document.getElementById("scroll-bot").style.display =
+            !atBottom ? "flex" : "none";
+    });
+
+    const observer = new MutationObserver(() => {
+        if (!userScrolledUp) {
+            scrollToBottom();
+        } else {
+            document.getElementById("new-msg").style.display = "block";
         }
+    });
 
-        if (++attempts > 10) clearInterval(interval);
-    }, 80);
-}
+    observer.observe(container, {
+        childList: true,
+        subtree: true
+    });
 
-// SCROLL BOTTOM
-function scrollBottomSmooth() {
-    let attempts = 0;
+    document.getElementById("new-msg").onclick = () => {
+        scrollToBottom();
+        document.getElementById("new-msg").style.display = "none";
+        userScrolledUp = false;
+    };
 
-    const interval = setInterval(() => {
-        const el = getScrollContainer();
-        if (el) {
-            el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-        }
-
-        if (++attempts > 10) clearInterval(interval);
-    }, 80);
-}
-
-// ATTACH EVENTS AFTER LOAD
-setTimeout(() => {
-    const topBtn = document.getElementById("scroll-top");
-    const botBtn = document.getElementById("scroll-bot");
-
-    if (topBtn) topBtn.onclick = scrollTopSmooth;
-    if (botBtn) botBtn.onclick = scrollBottomSmooth;
-
-}, 500);
+    setTimeout(scrollToBottom, 500);
+});
 
 </script>
 """, unsafe_allow_html=True)
-
 # ════════════════════════════════════════════════════════════════
 # HELPERS
 # ════════════════════════════════════════════════════════════════
