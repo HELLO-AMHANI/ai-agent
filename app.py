@@ -124,148 +124,71 @@ div[data-testid="stTextArea"] textarea:focus {
 
 .stButton > button {
     background: linear-gradient(135deg,#E8C97A,#C9A84C) !important;
-    color: #080807 !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 3px !important;
-    letter-spacing: 0.1em !important;
-    font-size: 0.75rem !important;
+    color: #080807 !important; font-weight: 600 !important;
+    border: none !important; border-radius: 3px !important;
+    letter-spacing: 0.1em !important; font-size: 0.75rem !important;
 }
+.stButton > button:hover { opacity: 0.88 !important; }
+hr { border-color: rgba(201,168,76,0.12) !important; }
 
-/* ───────── SCROLL BUTTONS ───────── */
+/* ── Scroll buttons ──────────────────────────────────────────
+   position:fixed so they float over the chat at bottom-right.
+   <button> not <a> — no navigation side-effect.
+   ─────────────────────────────────────────────────────────── */
 .scroll-btn {
-    position: fixed;
-    right: 1.2rem;
-    width: 42px;
-    height: 42px;
+    position: fixed; right: 1.2rem; width: 40px; height: 40px;
     border-radius: 50%;
     background: linear-gradient(135deg, #E8C97A, #C9A84C);
-    color: #080807;
-    border: none;
-    cursor: pointer;
-    font-size: 1.3rem;
-    font-weight: 700;
-    display: none;
-    align-items: center;
-    justify-content: center;
+    color: #080807; border: none; cursor: pointer;
+    font-size: 1.3rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
     box-shadow: 0 3px 12px rgba(201,168,76,0.35);
-    z-index: 99999;
-    transition: all 0.2s ease;
+    z-index: 9999; padding: 0; outline: none; line-height: 1;
+    transition: transform 0.15s, box-shadow 0.15s;
 }
-
 .scroll-btn:hover {
     transform: scale(1.12);
+    box-shadow: 0 5px 18px rgba(201,168,76,0.5);
 }
-
-#scroll-top { bottom: 5.5rem; }
-#scroll-bot { bottom: 1.2rem; }
-
-/* ───────── NEW MESSAGE BADGE ───────── */
-#new-msg {
-    position: fixed;
-    right: 1.2rem;
-    bottom: 7.5rem;
-    background: #C9A84C;
-    color: black;
-    padding: 6px 10px;
-    border-radius: 20px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    display: none;
-    cursor: pointer;
-    z-index: 99999;
-}
-
+#scroll-top { bottom: 5.2rem; }
+#scroll-bot { bottom: 1.0rem; }
 </style>
 
-<button id="scroll-top" class="scroll-btn">↑</button>
-<button id="scroll-bot" class="scroll-btn">↓</button>
-<div id="new-msg">New message ↓</div>
+<!--
+  SCROLL BUTTONS — FIX SUMMARY
+  Problem: buttons clicked but page did not scroll.
+  Root cause: Streamlit sets overflow:hidden on html/body.
+    window.scrollTo() and document.documentElement.scrollTop
+    have no effect. The real scroll container is one of:
+      [data-testid="stAppViewContainer"]  (Streamlit 1.28+)
+      section.main                        (Streamlit 1.x)
+      .main                               (older versions)
+  Fix: blast ALL candidates at once with scrollTop = 0.
+    One of them will be the live scroll container.
+    For scroll-to-bottom: pick the tallest scrollable container.
+-->
+<button id="scroll-top" class="scroll-btn" title="Scroll to top"
+  onclick="
+    var ids=['[data-testid=stAppViewContainer]','[data-testid=stMainBlockContainer]','section.main','.main','[data-testid=stVerticalBlock]'];
+    for(var i=0;i<ids.length;i++){var e=document.querySelector(ids[i]);if(e)e.scrollTop=0;}
+    document.documentElement.scrollTop=0;document.body.scrollTop=0;
+  ">&#8679;</button>
 
-<script>
-
-function getContainer() {
-    const selectors = [
-        '[data-testid="stAppViewContainer"]',
-        '[data-testid="stMainBlockContainer"]',
-        'section.main',
-        '.main'
-    ];
-
-    for (let sel of selectors) {
-        let el = document.querySelector(sel);
-        if (el && el.scrollHeight > el.clientHeight) return el;
+<button id="scroll-bot" class="scroll-btn" title="Scroll to bottom"
+  onclick="
+    var ids=['[data-testid=stAppViewContainer]','[data-testid=stMainBlockContainer]','section.main','.main','[data-testid=stVerticalBlock]'];
+    var best=null,bestH=0;
+    for(var i=0;i<ids.length;i++){
+      var e=document.querySelector(ids[i]);
+      if(e&&e.scrollHeight>bestH){bestH=e.scrollHeight;best=e;}
     }
-
-    return document.documentElement;
-}
-
-let userScrolledUp = false;
-
-function scrollToBottom() {
-    const el = getContainer();
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-}
-
-function scrollToTop() {
-    const el = getContainer();
-    el.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-// ───── SCROLL LISTENER ─────
-function monitorScroll() {
-    const el = getContainer();
-
-    el.addEventListener("scroll", () => {
-        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-
-        userScrolledUp = !atBottom;
-
-        document.getElementById("scroll-top").style.display =
-            el.scrollTop > 200 ? "flex" : "none";
-
-        document.getElementById("scroll-bot").style.display =
-            !atBottom ? "flex" : "none";
-    });
-}
-
-// ───── AUTO SCROLL DETECTOR ─────
-function monitorNewMessages() {
-    const target = getContainer();
-
-    const observer = new MutationObserver(() => {
-        if (!userScrolledUp) {
-            scrollToBottom();
-        } else {
-            document.getElementById("new-msg").style.display = "block";
-        }
-    });
-
-    observer.observe(target, { childList: true, subtree: true });
-}
-
-// ───── EVENTS ─────
-setTimeout(() => {
-
-    document.getElementById("scroll-top").onclick = scrollToTop;
-    document.getElementById("scroll-bot").onclick = scrollToBottom;
-
-    document.getElementById("new-msg").onclick = () => {
-        scrollToBottom();
-        document.getElementById("new-msg").style.display = "none";
-        userScrolledUp = false;
-    };
-
-    monitorScroll();
-    monitorNewMessages();
-
-    // initial auto scroll
-    scrollToBottom();
-
-}, 800);
-
-</script>
+    if(best){best.scrollTop=best.scrollHeight;}
+    document.documentElement.scrollTop=document.documentElement.scrollHeight;
+    document.body.scrollTop=document.body.scrollHeight;
+  ">&#8681;</button>
 """, unsafe_allow_html=True)
+
+
 # ════════════════════════════════════════════════════════════════
 # HELPERS
 # ════════════════════════════════════════════════════════════════
