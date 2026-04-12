@@ -77,7 +77,7 @@ components.html("""
     s.id = "amhani-scr-style";
     s.textContent =
       "#amhani-top, #amhani-bot {" +
-      "  position:fixed; right:1.2rem;" +
+      "  position:fixed; left:1.2rem;" +
       "  width:42px; height:42px; border-radius:50%;" +
       "  background:linear-gradient(135deg,#E8C97A,#C9A84C);" +
       "  color:#080807; border:none; cursor:pointer;" +
@@ -96,7 +96,7 @@ components.html("""
       "  box-shadow:0 5px 20px rgba(201,168,76,0.6);" +
       "}" +
       "#amhani-badge {" +
-      "  position:fixed; right:1.2rem; bottom:7.8rem;" +
+      "  position:fixed; left:1.2rem; bottom:7.8rem;" +
       "  background:#C9A84C; color:#080807;" +
       "  padding:5px 12px; border-radius:20px;" +
       "  font-size:0.72rem; font-weight:600;" +
