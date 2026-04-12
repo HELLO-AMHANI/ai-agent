@@ -76,7 +76,7 @@ components.html("""
       "  cursor: pointer;",
       "  font-size: 1.4rem;",
       "  font-weight: 700;",
-      "  display: none;",           /* hidden until scroll threshold */
+      "  display: none;",
       "  align-items: center;",
       "  justify-content: center;",
       "  z-index: 999999;",
@@ -111,7 +111,6 @@ components.html("""
   }
 
   // ── 3. Inject buttons into parent <body> ───────────────────
-  // Guard prevents duplicates across Streamlit reruns.
   if (!parentDoc.getElementById("amhani-scroll-top")) {
     var btnTop = parentDoc.createElement("button");
     btnTop.id        = "amhani-scroll-top";
@@ -134,11 +133,6 @@ components.html("""
   }
 
   // ── 4. Find the real scrollable Streamlit container ────────
-  //
-  // Streamlit renders its scrollable area in different elements
-  // depending on version. We probe in priority order.
-  // All queries now run on parentDoc — the actual page DOM.
-  //
   function getScrollContainer() {
     var selectors = [
       "[data-testid='stAppViewContainer']",
@@ -148,12 +142,10 @@ components.html("""
     ];
     for (var i = 0; i < selectors.length; i++) {
       var el = parentDoc.querySelector(selectors[i]);
-      // Must be scrollable: scrollHeight > clientHeight
       if (el && el.scrollHeight > el.clientHeight) {
         return el;
       }
     }
-    // Last resort: find the tallest scrollable div on the page
     var all = parentDoc.querySelectorAll("div");
     var best = null, bestH = 0;
     for (var j = 0; j < all.length; j++) {
@@ -183,7 +175,6 @@ components.html("""
       container.scrollTo({ top: 0, behavior: "smooth" });
     }
 
-    // Button click handlers
     btnTop.onclick = function () { scrollToTop(); };
     btnBot.onclick = function () { scrollToBottom(); };
     badge.onclick  = function () {
@@ -192,7 +183,6 @@ components.html("""
       userScrolledUp = false;
     };
 
-    // Show/hide buttons on scroll
     container.addEventListener("scroll", function () {
       var fromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       var atBottom   = fromBottom < 60;
@@ -203,7 +193,6 @@ components.html("""
       if (atBottom) badge.style.display = "none";
     });
 
-    // Auto-scroll on new content; badge if user scrolled up
     var observer = new MutationObserver(function () {
       if (!userScrolledUp) {
         scrollToBottom();
@@ -213,18 +202,14 @@ components.html("""
     });
     observer.observe(container, { childList: true, subtree: true });
 
-    // Scroll to bottom on first load
     setTimeout(scrollToBottom, 600);
   }
 
   // ── 6. Wait for Streamlit to finish painting ───────────────
-  // Retry up to 15 times (3 seconds) until a scrollable container
-  // is found — handles slow cloud deployments.
   var attempts = 0;
   function waitForContainer() {
     attempts++;
     var c = getScrollContainer();
-    // A real container will have scrollHeight much larger than 100
     if (c && c.scrollHeight > 100) {
       init();
     } else if (attempts < 15) {
@@ -232,7 +217,6 @@ components.html("""
     }
   }
 
-  // Start after a small delay so Streamlit's React tree is mounted
   setTimeout(waitForContainer, 500);
 
 })();
@@ -265,7 +249,7 @@ from chat_store import save_message, load_messages, clear_chat
 
 
 # ════════════════════════════════════════════════════════════════
-# GLOBAL STYLES + SCROLL BUTTONS
+# GLOBAL STYLES
 # ════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -335,6 +319,9 @@ div[data-testid="stTextInput"] input:focus,
 div[data-testid="stTextArea"] textarea:focus {
     border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
 }
+</style>
+""", unsafe_allow_html=True)
+
 
 # ════════════════════════════════════════════════════════════════
 # HELPERS
