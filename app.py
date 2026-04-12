@@ -124,70 +124,114 @@ div[data-testid="stTextArea"] textarea:focus {
 
 .stButton > button {
     background: linear-gradient(135deg,#E8C97A,#C9A84C) !important;
-    color: #080807 !important; font-weight: 600 !important;
-    border: none !important; border-radius: 3px !important;
-    letter-spacing: 0.1em !important; font-size: 0.75rem !important;
+    color: #080807 !important;
+    font-weight: 600 !important;
+    border: none !important;
+    border-radius: 3px !important;
+    letter-spacing: 0.1em !important;
+    font-size: 0.75rem !important;
 }
 .stButton > button:hover { opacity: 0.88 !important; }
+
 hr { border-color: rgba(201,168,76,0.12) !important; }
 
-/* ── Scroll buttons ──────────────────────────────────────────
-   position:fixed so they float over the chat at bottom-right.
-   <button> not <a> — no navigation side-effect.
-   ─────────────────────────────────────────────────────────── */
+/* ── SCROLL BUTTONS ─────────────────────── */
 .scroll-btn {
-    position: fixed; right: 1.2rem; width: 40px; height: 40px;
+    position: fixed;
+    right: 1.2rem;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
     background: linear-gradient(135deg, #E8C97A, #C9A84C);
-    color: #080807; border: none; cursor: pointer;
-    font-size: 1.3rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
+    color: #080807;
+    border: none;
+    cursor: pointer;
+    font-size: 1.3rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     box-shadow: 0 3px 12px rgba(201,168,76,0.35);
-    z-index: 9999; padding: 0; outline: none; line-height: 1;
-    transition: transform 0.15s, box-shadow 0.15s;
+    z-index: 99999;
+    transition: all 0.2s ease;
 }
+
 .scroll-btn:hover {
     transform: scale(1.12);
-    box-shadow: 0 5px 18px rgba(201,168,76,0.5);
+    box-shadow: 0 6px 18px rgba(201,168,76,0.55);
 }
-#scroll-top { bottom: 5.2rem; }
-#scroll-bot { bottom: 1.0rem; }
+
+#scroll-top { bottom: 5.5rem; }
+#scroll-bot { bottom: 1.2rem; }
+
 </style>
 
-<!--
-  SCROLL BUTTONS — FIX SUMMARY
-  Problem: buttons clicked but page did not scroll.
-  Root cause: Streamlit sets overflow:hidden on html/body.
-    window.scrollTo() and document.documentElement.scrollTop
-    have no effect. The real scroll container is one of:
-      [data-testid="stAppViewContainer"]  (Streamlit 1.28+)
-      section.main                        (Streamlit 1.x)
-      .main                               (older versions)
-  Fix: blast ALL candidates at once with scrollTop = 0.
-    One of them will be the live scroll container.
-    For scroll-to-bottom: pick the tallest scrollable container.
--->
-<button id="scroll-top" class="scroll-btn" title="Scroll to top"
-  onclick="
-    var ids=['[data-testid=stAppViewContainer]','[data-testid=stMainBlockContainer]','section.main','.main','[data-testid=stVerticalBlock]'];
-    for(var i=0;i<ids.length;i++){var e=document.querySelector(ids[i]);if(e)e.scrollTop=0;}
-    document.documentElement.scrollTop=0;document.body.scrollTop=0;
-  ">&#8679;</button>
+<!-- BUTTONS -->
+<button id="scroll-top" class="scroll-btn">↑</button>
+<button id="scroll-bot" class="scroll-btn">↓</button>
 
-<button id="scroll-bot" class="scroll-btn" title="Scroll to bottom"
-  onclick="
-    var ids=['[data-testid=stAppViewContainer]','[data-testid=stMainBlockContainer]','section.main','.main','[data-testid=stVerticalBlock]'];
-    var best=null,bestH=0;
-    for(var i=0;i<ids.length;i++){
-      var e=document.querySelector(ids[i]);
-      if(e&&e.scrollHeight>bestH){bestH=e.scrollHeight;best=e;}
+<script>
+
+// FIND REAL STREAMLIT SCROLL CONTAINER
+function getScrollContainer() {
+    const selectors = [
+        '[data-testid="stAppViewContainer"]',
+        '[data-testid="stMainBlockContainer"]',
+        'section.main',
+        '.main',
+        '[data-testid="stVerticalBlock"]'
+    ];
+
+    for (let sel of selectors) {
+        let el = document.querySelector(sel);
+        if (el && el.scrollHeight > el.clientHeight) {
+            return el;
+        }
     }
-    if(best){best.scrollTop=best.scrollHeight;}
-    document.documentElement.scrollTop=document.documentElement.scrollHeight;
-    document.body.scrollTop=document.body.scrollHeight;
-  ">&#8681;</button>
-""", unsafe_allow_html=True)
 
+    return document.documentElement;
+}
+
+// SCROLL TOP
+function scrollTopSmooth() {
+    let attempts = 0;
+
+    const interval = setInterval(() => {
+        const el = getScrollContainer();
+        if (el) {
+            el.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        if (++attempts > 10) clearInterval(interval);
+    }, 80);
+}
+
+// SCROLL BOTTOM
+function scrollBottomSmooth() {
+    let attempts = 0;
+
+    const interval = setInterval(() => {
+        const el = getScrollContainer();
+        if (el) {
+            el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        }
+
+        if (++attempts > 10) clearInterval(interval);
+    }, 80);
+}
+
+// ATTACH EVENTS AFTER LOAD
+setTimeout(() => {
+    const topBtn = document.getElementById("scroll-top");
+    const botBtn = document.getElementById("scroll-bot");
+
+    if (topBtn) topBtn.onclick = scrollTopSmooth;
+    if (botBtn) botBtn.onclick = scrollBottomSmooth;
+
+}, 500);
+
+</script>
+""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════
 # HELPERS
