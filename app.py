@@ -122,7 +122,6 @@ div[data-testid="stTextArea"] textarea:focus {
     border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
 }
 
-
 import streamlit.components.v1 as components
 
 components.html("""
@@ -152,7 +151,7 @@ components.html("""
     cursor: pointer;
     font-size: 1.3rem;
     font-weight: 700;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     z-index: 99999;
@@ -184,12 +183,29 @@ components.html("""
 
 <script>
 
-function initScrollSystem() {
+function getContainer() {
+    // Try multiple Streamlit containers safely
+    const selectors = [
+        '[data-testid="stAppViewContainer"]',
+        '[data-testid="stMainBlockContainer"]',
+        'section.main',
+        '.main'
+    ];
 
-    const container = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
+    for (let sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) return el;
+    }
+
+    return document.documentElement;
+}
+
+function init() {
+
+    const container = getContainer();
 
     if (!container) {
-        setTimeout(initScrollSystem, 300);
+        setTimeout(init, 300);
         return;
     }
 
@@ -209,12 +225,13 @@ function initScrollSystem() {
         });
     }
 
-    // BUTTON EVENTS
+    // BUTTONS
     document.getElementById("scroll-top").onclick = scrollToTop;
     document.getElementById("scroll-bot").onclick = scrollToBottom;
 
     // SCROLL DETECTION
     container.addEventListener("scroll", () => {
+
         const atBottom =
             container.scrollHeight - container.scrollTop - container.clientHeight < 50;
 
@@ -227,8 +244,9 @@ function initScrollSystem() {
             !atBottom ? "flex" : "none";
     });
 
-    // NEW MESSAGE OBSERVER
+    // NEW MESSAGE DETECTION
     const observer = new MutationObserver(() => {
+
         if (!userScrolledUp) {
             scrollToBottom();
         } else {
@@ -241,17 +259,20 @@ function initScrollSystem() {
         subtree: true
     });
 
+    // NEW MESSAGE BUTTON
     document.getElementById("new-msg").onclick = () => {
         scrollToBottom();
         document.getElementById("new-msg").style.display = "none";
         userScrolledUp = false;
     };
 
-    setTimeout(scrollToBottom, 500);
+    // INITIAL SCROLL
+    setTimeout(scrollToBottom, 700);
+
 }
 
-// START
-initScrollSystem();
+// WAIT FOR STREAMLIT TO FULLY LOAD
+setTimeout(init, 800);
 
 </script>
 """, height=0)
