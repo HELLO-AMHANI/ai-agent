@@ -131,11 +131,8 @@ div[data-testid="stTextArea"] textarea:focus {
     letter-spacing: 0.1em !important;
     font-size: 0.75rem !important;
 }
-.stButton > button:hover { opacity: 0.88 !important; }
 
-hr { border-color: rgba(201,168,76,0.12) !important; }
-
-/* ── SCROLL BUTTONS ─────────────────────── */
+/* ───────── SCROLL BUTTONS ───────── */
 .scroll-btn {
     position: fixed;
     right: 1.2rem;
@@ -148,7 +145,7 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
     cursor: pointer;
     font-size: 1.3rem;
     font-weight: 700;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     box-shadow: 0 3px 12px rgba(201,168,76,0.35);
@@ -158,81 +155,117 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
 
 .scroll-btn:hover {
     transform: scale(1.12);
-    box-shadow: 0 6px 18px rgba(201,168,76,0.55);
 }
 
 #scroll-top { bottom: 5.5rem; }
 #scroll-bot { bottom: 1.2rem; }
 
+/* ───────── NEW MESSAGE BADGE ───────── */
+#new-msg {
+    position: fixed;
+    right: 1.2rem;
+    bottom: 7.5rem;
+    background: #C9A84C;
+    color: black;
+    padding: 6px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    display: none;
+    cursor: pointer;
+    z-index: 99999;
+}
+
 </style>
 
-<!-- BUTTONS -->
 <button id="scroll-top" class="scroll-btn">↑</button>
 <button id="scroll-bot" class="scroll-btn">↓</button>
+<div id="new-msg">New message ↓</div>
 
 <script>
 
-// FIND REAL STREAMLIT SCROLL CONTAINER
-function getScrollContainer() {
+function getContainer() {
     const selectors = [
         '[data-testid="stAppViewContainer"]',
         '[data-testid="stMainBlockContainer"]',
         'section.main',
-        '.main',
-        '[data-testid="stVerticalBlock"]'
+        '.main'
     ];
 
     for (let sel of selectors) {
         let el = document.querySelector(sel);
-        if (el && el.scrollHeight > el.clientHeight) {
-            return el;
-        }
+        if (el && el.scrollHeight > el.clientHeight) return el;
     }
 
     return document.documentElement;
 }
 
-// SCROLL TOP
-function scrollTopSmooth() {
-    let attempts = 0;
+let userScrolledUp = false;
 
-    const interval = setInterval(() => {
-        const el = getScrollContainer();
-        if (el) {
-            el.scrollTo({ top: 0, behavior: "smooth" });
-        }
-
-        if (++attempts > 10) clearInterval(interval);
-    }, 80);
+function scrollToBottom() {
+    const el = getContainer();
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
 }
 
-// SCROLL BOTTOM
-function scrollBottomSmooth() {
-    let attempts = 0;
-
-    const interval = setInterval(() => {
-        const el = getScrollContainer();
-        if (el) {
-            el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-        }
-
-        if (++attempts > 10) clearInterval(interval);
-    }, 80);
+function scrollToTop() {
+    const el = getContainer();
+    el.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// ATTACH EVENTS AFTER LOAD
+// ───── SCROLL LISTENER ─────
+function monitorScroll() {
+    const el = getContainer();
+
+    el.addEventListener("scroll", () => {
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+
+        userScrolledUp = !atBottom;
+
+        document.getElementById("scroll-top").style.display =
+            el.scrollTop > 200 ? "flex" : "none";
+
+        document.getElementById("scroll-bot").style.display =
+            !atBottom ? "flex" : "none";
+    });
+}
+
+// ───── AUTO SCROLL DETECTOR ─────
+function monitorNewMessages() {
+    const target = getContainer();
+
+    const observer = new MutationObserver(() => {
+        if (!userScrolledUp) {
+            scrollToBottom();
+        } else {
+            document.getElementById("new-msg").style.display = "block";
+        }
+    });
+
+    observer.observe(target, { childList: true, subtree: true });
+}
+
+// ───── EVENTS ─────
 setTimeout(() => {
-    const topBtn = document.getElementById("scroll-top");
-    const botBtn = document.getElementById("scroll-bot");
 
-    if (topBtn) topBtn.onclick = scrollTopSmooth;
-    if (botBtn) botBtn.onclick = scrollBottomSmooth;
+    document.getElementById("scroll-top").onclick = scrollToTop;
+    document.getElementById("scroll-bot").onclick = scrollToBottom;
 
-}, 500);
+    document.getElementById("new-msg").onclick = () => {
+        scrollToBottom();
+        document.getElementById("new-msg").style.display = "none";
+        userScrolledUp = false;
+    };
+
+    monitorScroll();
+    monitorNewMessages();
+
+    // initial auto scroll
+    scrollToBottom();
+
+}, 800);
 
 </script>
 """, unsafe_allow_html=True)
-
 # ════════════════════════════════════════════════════════════════
 # HELPERS
 # ════════════════════════════════════════════════════════════════
