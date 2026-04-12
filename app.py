@@ -122,20 +122,24 @@ div[data-testid="stTextArea"] textarea:focus {
     border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
 }
 
+
+import streamlit.components.v1 as components
+
+components.html("""
+<style>
+
+/* BUTTON STYLE */
 .stButton > button {
-    background: linear-gradient(135deg,#E8C97A,#C9A84C) !important;
-    color: #080807 !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 3px !important;
-    letter-spacing: 0.1em !important;
-    font-size: 0.75rem !important;
+    background: linear-gradient(135deg,#E8C97A,#C9A84C);
+    color: #080807;
+    font-weight: 600;
+    border: none;
+    border-radius: 3px;
+    letter-spacing: 0.1em;
+    font-size: 0.75rem;
 }
-.stButton > button:hover { opacity: 0.88 !important; }
 
-hr { border-color: rgba(201,168,76,0.12) !important; }
-
-/* ── SCROLL BUTTONS ─────────────────────── */
+/* SCROLL BUTTONS */
 .scroll-btn {
     position: fixed;
     right: 1.2rem;
@@ -151,39 +155,43 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 3px 12px rgba(201,168,76,0.35);
     z-index: 99999;
-    transition: all 0.2s ease;
-}
-
-.scroll-btn:hover {
-    transform: scale(1.12);
-    box-shadow: 0 6px 18px rgba(201,168,76,0.55);
 }
 
 #scroll-top { bottom: 5.5rem; }
 #scroll-bot { bottom: 1.2rem; }
 
+/* NEW MESSAGE BADGE */
+#new-msg {
+    position: fixed;
+    right: 1.2rem;
+    bottom: 7.5rem;
+    background: #C9A84C;
+    color: black;
+    padding: 6px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    display: none;
+    cursor: pointer;
+    z-index: 99999;
+}
+
 </style>
 
-<!-- BUTTONS -->
 <button id="scroll-top" class="scroll-btn">↑</button>
 <button id="scroll-bot" class="scroll-btn">↓</button>
 <div id="new-msg">New message ↓</div>
 
 <script>
 
-function waitForContainer(callback) {
-    const interval = setInterval(() => {
-        const el = document.querySelector('[data-testid="stAppViewContainer"]');
-        if (el) {
-            clearInterval(interval);
-            callback(el);
-        }
-    }, 100);
-}
+function initScrollSystem() {
 
-waitForContainer((container) => {
+    const container = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
+
+    if (!container) {
+        setTimeout(initScrollSystem, 300);
+        return;
+    }
 
     let userScrolledUp = false;
 
@@ -201,9 +209,11 @@ waitForContainer((container) => {
         });
     }
 
+    // BUTTON EVENTS
     document.getElementById("scroll-top").onclick = scrollToTop;
     document.getElementById("scroll-bot").onclick = scrollToBottom;
 
+    // SCROLL DETECTION
     container.addEventListener("scroll", () => {
         const atBottom =
             container.scrollHeight - container.scrollTop - container.clientHeight < 50;
@@ -217,6 +227,7 @@ waitForContainer((container) => {
             !atBottom ? "flex" : "none";
     });
 
+    // NEW MESSAGE OBSERVER
     const observer = new MutationObserver(() => {
         if (!userScrolledUp) {
             scrollToBottom();
@@ -237,10 +248,14 @@ waitForContainer((container) => {
     };
 
     setTimeout(scrollToBottom, 500);
-});
+}
+
+// START
+initScrollSystem();
 
 </script>
-""", unsafe_allow_html=True)
+""", height=0)
+
 # ════════════════════════════════════════════════════════════════
 # HELPERS
 # ════════════════════════════════════════════════════════════════
