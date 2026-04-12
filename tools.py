@@ -11,6 +11,15 @@
 #   - Futures ticker fallback order corrected: YM=F (Dow mini),
 #     ES=F (S&P mini), NQ=F (NASDAQ mini) all confirmed to
 #     return intraday data on yfinance free tier.
+# NVIDIA FIX 2 (Streamlit Cloud 4H still unavailable):
+#   - Root cause: get_index_4h maps "US30" → "YM=F" then calls
+#     _fetch_4h_levels("YM=F", ...). The fallback_map had NO
+#     entry for "YM=F" itself — only for "US30", "^DJI" etc.
+#     So when YM=F timed out on cloud, zero fallbacks ran.
+#   - FIX: Added all futures tickers (YM=F, ES=F, NQ=F, GC=F,
+#     CL=F, RTY=F, ZN=F) directly into fallback_map pointing at
+#     their liquid ETF alternatives. Cloud now falls through to
+#     DIA/SPY/QQQ/GLD/USO when futures are unavailable.
 # =============================================================
 
 import io
@@ -99,6 +108,8 @@ def _fetch_4h_levels(ticker: str, display_name: str) -> str:
       - All time.sleep() removed (was blocking Streamlit event loop)
       - Hard timeout via ThreadPoolExecutor so cloud never hangs
       - Futures fallback correctly ordered
+      - NVIDIA FIX 2: futures tickers (YM=F, ES=F, NQ=F etc.) now
+        have their own fallback_map entries so cloud never dead-ends
     """
     cache_key = f"4h_{ticker}"
     cached = _cache.get(cache_key)
@@ -115,20 +126,36 @@ def _fetch_4h_levels(ticker: str, display_name: str) -> str:
     else:
         h = None  # reset for fallback logic
 
-    # Fallback map: index tickers → futures that support intraday
+    # ── FALLBACK MAP ──────────────────────────────────────────
+    # NVIDIA FIX 2: Added all futures tickers as direct keys.
+    # Previously only index tickers (^DJI, US30 etc.) were here.
+    # get_index_4h maps US30 → YM=F then calls _fetch_4h_levels("YM=F").
+    # If YM=F fails on cloud, there was no fallback — now DIA catches it.
     fallback_map = {
-        # Dow Jones
-        "^DJI":    ["YM=F", "DIA"],
-        # S&P 500
-        "^GSPC":   ["ES=F", "SPY"],
-        # NASDAQ
-        "^IXIC":   ["NQ=F", "QQQ"],
-        # VIX (no intraday futures alternative — use VIXY ETF)
-        "^VIX":    ["VIXY"],
-        # Common alias names users type
-        "US30":    ["YM=F", "DIA"],
-        "SPX":     ["ES=F", "SPY"],
-        "NAS100":  ["NQ=F", "QQQ"],
+        # ── Index tickers (user may type these directly) ──
+        "^DJI":     ["YM=F", "DIA"],
+        "^GSPC":    ["ES=F", "SPY"],
+        "^IXIC":    ["NQ=F", "QQQ"],
+        "^VIX":     ["VIXY"],
+        # Common alias names
+        "US30":     ["YM=F", "DIA"],
+        "SPX":      ["ES=F", "SPY"],
+        "NAS100":   ["NQ=F", "QQQ"],
+        # ── Futures tickers (passed in by get_index_4h) ──────
+        # These are the DIRECT tickers the tool now receives.
+        # ETFs are the reliable fallback on Streamlit Cloud.
+        "YM=F":     ["DIA"],          # Dow mini  → SPDR Dow ETF
+        "ES=F":     ["SPY"],          # S&P mini  → S&P 500 ETF
+        "NQ=F":     ["QQQ"],          # NASDAQ mini → Invesco QQQ
+        "GC=F":     ["GLD", "IAU"],   # Gold      → SPDR Gold / iShares
+        "CL=F":     ["USO", "XLE"],   # WTI Oil   → US Oil Fund / Energy
+        "RTY=F":    ["IWM"],          # Russell   → iShares Russell 2000
+        "ZN=F":     ["TLT", "IEF"],   # 10yr Bond → iShares 20yr / 7-10yr
+        "SI=F":     ["SLV"],          # Silver    → iShares Silver
+        "HG=F":     ["CPER"],         # Copper    → US Copper Index
+        "NG=F":     ["UNG"],          # Nat Gas   → US Natural Gas Fund
+        # ── VIX futures ──
+        "VX=F":     ["VIXY", "UVXY"],
     }
 
     if h is None or h.empty:
@@ -145,7 +172,7 @@ def _fetch_4h_levels(ticker: str, display_name: str) -> str:
         return (
             f"⚠️ 4H data for {display_name} is temporarily unavailable.\n"
             f"Yahoo Finance does not provide intraday data for this symbol on the free tier.\n"
-            f"Try: 'US30 4h' (uses YM=F futures) or 'BTC 4h' (uses BTC-USD hourly)."
+            f"Try: 'US30 4h' (uses YM=F → DIA) or 'BTC 4h' (uses BTC-USD hourly)."
         )
 
     # ── Aggregate 1H → 4H ────────────────────────────────────
@@ -421,6 +448,8 @@ def get_index_4h(input: str) -> str:
     4-hour technical analysis for major indices.
     Input: 'US30', 'SPX', 'NAS100', 'NASDAQ', 'Dow', 'S&P'
     Uses futures contracts (YM=F, ES=F, NQ=F) for intraday data.
+    Falls back to liquid ETFs (DIA, SPY, QQQ) on cloud when
+    futures data is unavailable — handled inside _fetch_4h_levels.
     Examples: 'US30 4h'  'SPX 4h'  'NAS100'
     """
     mapping = {

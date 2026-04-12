@@ -7,6 +7,11 @@
 #   - Logout indentation bug: for loop fell outside the if block.
 #     FIX: corrected indentation.
 #   - Subscribe button typo: "Subscrib# 29,009" → "Subscribe — ₦9,999"
+#   - NVIDIA FIX: Scroll buttons used <a> tags without href.
+#     In Streamlit's environment <a> tags trigger page navigation
+#     instead of running onclick. FIX: replaced with <button>
+#     elements. Also updated JS to target Streamlit's actual
+#     scrollable container (.main) with window fallback.
 # =============================================================
 
 import os
@@ -49,6 +54,13 @@ from chat_store import save_message, load_messages, clear_chat
 # GLOBAL STYLES — ONE single st.markdown block for ALL CSS
 # BUG FIX: Previously split into two blocks; CSS outside a string
 # caused "SyntaxError: invalid decimal literal" on rem values.
+#
+# SCROLL BUTTON FIX:
+#   OLD: <a> tags — browsers treat <a> without href as navigation
+#        triggers; Streamlit's sandbox routes them as page links.
+#   NEW: <button> tags — no default navigation behaviour.
+#        JS targets .main (Streamlit's scroll container) first,
+#        falls back to window for safety.
 # ════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -173,7 +185,12 @@ div[data-testid="stTextArea"] textarea:focus {
 .stButton > button:hover { opacity: 0.88 !important; }
 hr { border-color: rgba(201,168,76,0.12) !important; }
 
-/* ── Scroll buttons (fixed, bottom-right) ── */
+/* ── Scroll buttons (fixed, bottom-right) ────────────────────
+   FIX: Changed from <a> to <button> to prevent page navigation.
+   <a> tags in Streamlit's rendered HTML are intercepted and
+   treated as navigation links even when onclick is set.
+   <button> elements have no default navigation behaviour.
+   ─────────────────────────────────────────────────────────── */
 .scroll-btn {
     position: fixed;
     right: 1.2rem;
@@ -192,9 +209,10 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
     box-shadow: 0 3px 12px rgba(201,168,76,0.35);
     z-index: 9999;
     transition: transform 0.2s, box-shadow 0.2s;
-    text-decoration: none;
     line-height: 1;
     user-select: none;
+    padding: 0;
+    outline: none;
 }
 .scroll-btn:hover {
     transform: scale(1.12);
@@ -205,15 +223,25 @@ hr { border-color: rgba(201,168,76,0.12) !important; }
 #scroll-bot { bottom: 1.0rem; }
 </style>
 
-<!-- Scroll to top button -->
-<a id="scroll-top" class="scroll-btn"
-   onclick="window.scrollTo({top:0,behavior:'smooth'})"
-   title="Scroll to top">&#8679;</a>
+<!--
+  SCROLL BUTTONS — FIX SUMMARY
+  Problem: <a> tags without href in Streamlit's unsafe_allow_html
+           context get treated as page navigation links. Clicking
+           them navigated to the current URL (reload) or elsewhere
+           instead of scrolling.
+  Fix:     Use <button> elements. Buttons have no default navigation.
+           The JS targets .main first (Streamlit's scroll container)
+           then falls back to window.scrollTo for safety.
+           window.parent is NOT used — Streamlit Community Cloud
+           renders the app in the same window context as the HTML.
+-->
+<button id="scroll-top" class="scroll-btn"
+   onclick="(function(){var m=document.querySelector('.main');if(m){m.scrollTop=0;}else{window.scrollTo({top:0,behavior:'smooth'});}})();"
+   title="Scroll to top">&#8679;</button>
 
-<!-- Scroll to bottom button -->
-<a id="scroll-bot" class="scroll-btn"
-   onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})"
-   title="Scroll to bottom">&#8681;</a>
+<button id="scroll-bot" class="scroll-btn"
+   onclick="(function(){var m=document.querySelector('.main');if(m){m.scrollTop=m.scrollHeight;}else{window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}})();"
+   title="Scroll to bottom">&#8681;</button>
 """, unsafe_allow_html=True)
 
 

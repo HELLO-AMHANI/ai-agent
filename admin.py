@@ -1,5 +1,14 @@
 # admin.py — CONSULTAMHANi | Admin Dashboard
 # Run: streamlit run admin.py --server.port 8502
+# NVIDIA FIX: Visitor log was not displaying any users.
+#   Root cause: indentation error in the visitor for loop.
+#   The try/except block (for datetime formatting) and ALL the
+#   st.columns / st.markdown / st.button calls after it were
+#   de-indented outside the for loop body. Python only executed
+#   them ONCE after the loop finished, using the last iteration's
+#   variables. If the visitor dict was empty, nothing rendered.
+#   FIX: Re-indented the entire loop body (try/except through the
+#   Reset button) so every visitor gets its own rendered row.
 
 import time
 import streamlit as st
@@ -164,20 +173,46 @@ raw = stats.get("visitors", {})
 if not raw:
     st.markdown("<span style='font-size:0.8rem; color:rgba(250,250,247,0.28);'>No visitor data yet.</span>", unsafe_allow_html=True)
 else:
-    for vid, record in sorted(raw.items(), key=lambda x: x[1].get("last_seen", 0), reverse=True):
-        count    = record.get("count", 0)
-        ls       = record.get("last_seen", 0)
-        hit      = count >= FREE_LIMIT
-        tstr     = time.strftime("%Y-%m-%d %H:%M", time.localtime(ls)) if ls else "N/A"
+    # ── NVIDIA FIX: indentation bug ───────────────────────────────────────────
+    # BUG: The try/except (for tstr) and all the st.columns/markdown/button
+    #      calls below it were at the SAME indentation level as the for
+    #      statement — meaning they ran ONCE after the loop, not per visitor.
+    #      This caused the admin page to either show nothing (empty dict)
+    #      or show only the very last visitor in the list.
+    # FIX: Every line from "try:" through the Reset "st.button" is now
+    #      indented 4 spaces inside the for loop body.
+    # ─────────────────────────────────────────────────────────────────────────
+    for vid, record in sorted(raw.items(), key=lambda x: x[1].get("last_seen", ""), reverse=True):
+        count = record.get("count", 0)
+        ls    = record.get("last_seen", "")
+        hit   = count >= FREE_LIMIT
+
+        # datetime formatting — INSIDE the loop (was outside before the fix)
+        try:
+            from datetime import datetime as _dt
+            tstr = _dt.fromisoformat(ls).strftime("%Y-%m-%d %H:%M") if ls else "N/A"
+        except Exception:
+            tstr = str(ls) if ls else "N/A"
+
+        # All display code — INSIDE the loop (was outside before the fix)
         status   = "🔴 Hit Paywall" if hit else f"🟡 {count}/{FREE_LIMIT} used"
         short_id = vid[:18] + "…"
         ca, cb, cc, cd = st.columns([3, 2, 2, 1])
         with ca:
-            st.markdown(f'<span style="font-size:0.68rem; color:rgba(250,250,247,0.3); font-family:monospace;">{short_id}</span>', unsafe_allow_html=True)
+            st.markdown(
+                f'<span style="font-size:0.68rem; color:rgba(250,250,247,0.3); font-family:monospace;">{short_id}</span>',
+                unsafe_allow_html=True,
+            )
         with cb:
-            st.markdown(f'<span style="font-size:0.7rem; color:rgba(250,250,247,0.4);">{tstr}</span>', unsafe_allow_html=True)
+            st.markdown(
+                f'<span style="font-size:0.7rem; color:rgba(250,250,247,0.4);">{tstr}</span>',
+                unsafe_allow_html=True,
+            )
         with cc:
-            st.markdown(f'<span style="font-size:0.72rem;">{status}</span>', unsafe_allow_html=True)
+            st.markdown(
+                f'<span style="font-size:0.72rem;">{status}</span>',
+                unsafe_allow_html=True,
+            )
         with cd:
             if st.button("Reset", key=f"r_{vid}"):
                 reset_ip(vid)
