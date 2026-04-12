@@ -28,6 +28,220 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+import streamlit.components.v1 as components
+
+components.html("""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  /* Reset iframe body so it takes zero space */
+  html, body {
+    margin: 0; padding: 0;
+    width: 0; height: 0;
+    overflow: hidden;
+    background: transparent;
+  }
+</style>
+</head>
+<body>
+
+<!-- 
+  These elements are injected into the PARENT document by the script below.
+  Nothing is rendered inside the iframe itself.
+-->
+
+<script>
+(function () {
+
+  // ── 1. Escape the iframe — target the real Streamlit page ──
+  var parentDoc = window.parent.document;
+  var parentWin = window.parent;
+
+  // ── 2. Inject button styles into parent <head> ─────────────
+  // We do this once; a guard prevents double-injection on reruns.
+  if (!parentDoc.getElementById("amhani-scroll-styles")) {
+    var style = parentDoc.createElement("style");
+    style.id = "amhani-scroll-styles";
+    style.textContent = [
+      ".amhani-scroll-btn {",
+      "  position: fixed;",
+      "  right: 1.2rem;",
+      "  width: 42px;",
+      "  height: 42px;",
+      "  border-radius: 50%;",
+      "  background: linear-gradient(135deg, #E8C97A, #C9A84C);",
+      "  color: #080807;",
+      "  border: none;",
+      "  cursor: pointer;",
+      "  font-size: 1.4rem;",
+      "  font-weight: 700;",
+      "  display: none;",           /* hidden until scroll threshold */
+      "  align-items: center;",
+      "  justify-content: center;",
+      "  z-index: 999999;",
+      "  box-shadow: 0 3px 14px rgba(201,168,76,0.45);",
+      "  transition: transform 0.15s, box-shadow 0.15s;",
+      "  line-height: 1;",
+      "  padding: 0;",
+      "}",
+      ".amhani-scroll-btn:hover {",
+      "  transform: scale(1.12);",
+      "  box-shadow: 0 5px 20px rgba(201,168,76,0.6);",
+      "}",
+      "#amhani-scroll-top { bottom: 5.5rem; }",
+      "#amhani-scroll-bot { bottom: 1.2rem; }",
+      "#amhani-new-msg {",
+      "  position: fixed;",
+      "  right: 1.2rem;",
+      "  bottom: 7.8rem;",
+      "  background: #C9A84C;",
+      "  color: #080807;",
+      "  padding: 5px 12px;",
+      "  border-radius: 20px;",
+      "  font-size: 0.72rem;",
+      "  font-weight: 600;",
+      "  display: none;",
+      "  cursor: pointer;",
+      "  z-index: 999999;",
+      "  box-shadow: 0 2px 10px rgba(201,168,76,0.4);",
+      "}",
+    ].join("\n");
+    parentDoc.head.appendChild(style);
+  }
+
+  // ── 3. Inject buttons into parent <body> ───────────────────
+  // Guard prevents duplicates across Streamlit reruns.
+  if (!parentDoc.getElementById("amhani-scroll-top")) {
+    var btnTop = parentDoc.createElement("button");
+    btnTop.id        = "amhani-scroll-top";
+    btnTop.className = "amhani-scroll-btn";
+    btnTop.innerHTML = "&#8679;";
+    btnTop.title     = "Scroll to top";
+    parentDoc.body.appendChild(btnTop);
+
+    var btnBot = parentDoc.createElement("button");
+    btnBot.id        = "amhani-scroll-bot";
+    btnBot.className = "amhani-scroll-btn";
+    btnBot.innerHTML = "&#8681;";
+    btnBot.title     = "Scroll to bottom";
+    parentDoc.body.appendChild(btnBot);
+
+    var newMsg = parentDoc.createElement("div");
+    newMsg.id        = "amhani-new-msg";
+    newMsg.innerHTML = "New message &#8681;";
+    parentDoc.body.appendChild(newMsg);
+  }
+
+  // ── 4. Find the real scrollable Streamlit container ────────
+  //
+  // Streamlit renders its scrollable area in different elements
+  // depending on version. We probe in priority order.
+  // All queries now run on parentDoc — the actual page DOM.
+  //
+  function getScrollContainer() {
+    var selectors = [
+      "[data-testid='stAppViewContainer']",
+      "[data-testid='stMainBlockContainer']",
+      "section.main",
+      ".main",
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = parentDoc.querySelector(selectors[i]);
+      // Must be scrollable: scrollHeight > clientHeight
+      if (el && el.scrollHeight > el.clientHeight) {
+        return el;
+      }
+    }
+    // Last resort: find the tallest scrollable div on the page
+    var all = parentDoc.querySelectorAll("div");
+    var best = null, bestH = 0;
+    for (var j = 0; j < all.length; j++) {
+      var d = all[j];
+      if (d.scrollHeight > d.clientHeight && d.scrollHeight > bestH) {
+        bestH = d.scrollHeight;
+        best  = d;
+      }
+    }
+    return best || parentDoc.documentElement;
+  }
+
+  // ── 5. Wire up behaviour ───────────────────────────────────
+  function init() {
+    var container = getScrollContainer();
+
+    var userScrolledUp = false;
+
+    var btnTop = parentDoc.getElementById("amhani-scroll-top");
+    var btnBot = parentDoc.getElementById("amhani-scroll-bot");
+    var badge  = parentDoc.getElementById("amhani-new-msg");
+
+    function scrollToBottom() {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
+    function scrollToTop() {
+      container.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    // Button click handlers
+    btnTop.onclick = function () { scrollToTop(); };
+    btnBot.onclick = function () { scrollToBottom(); };
+    badge.onclick  = function () {
+      scrollToBottom();
+      badge.style.display = "none";
+      userScrolledUp = false;
+    };
+
+    // Show/hide buttons on scroll
+    container.addEventListener("scroll", function () {
+      var fromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      var atBottom   = fromBottom < 60;
+      userScrolledUp = !atBottom;
+
+      btnTop.style.display = container.scrollTop > 200 ? "flex" : "none";
+      btnBot.style.display = !atBottom             ? "flex" : "none";
+      if (atBottom) badge.style.display = "none";
+    });
+
+    // Auto-scroll on new content; badge if user scrolled up
+    var observer = new MutationObserver(function () {
+      if (!userScrolledUp) {
+        scrollToBottom();
+      } else {
+        badge.style.display = "block";
+      }
+    });
+    observer.observe(container, { childList: true, subtree: true });
+
+    // Scroll to bottom on first load
+    setTimeout(scrollToBottom, 600);
+  }
+
+  // ── 6. Wait for Streamlit to finish painting ───────────────
+  // Retry up to 15 times (3 seconds) until a scrollable container
+  // is found — handles slow cloud deployments.
+  var attempts = 0;
+  function waitForContainer() {
+    attempts++;
+    var c = getScrollContainer();
+    // A real container will have scrollHeight much larger than 100
+    if (c && c.scrollHeight > 100) {
+      init();
+    } else if (attempts < 15) {
+      setTimeout(waitForContainer, 200);
+    }
+  }
+
+  // Start after a small delay so Streamlit's React tree is mounted
+  setTimeout(waitForContainer, 500);
+
+})();
+</script>
+
+</body>
+</html>
+""", height=0, scrolling=False)
+
 from agent import run_agent, sync_memory, llm
 from auth import (
     render_auth_ui,
@@ -121,161 +335,6 @@ div[data-testid="stTextInput"] input:focus,
 div[data-testid="stTextArea"] textarea:focus {
     border-color: rgba(201,168,76,0.55) !important; box-shadow: none !important;
 }
-
-import streamlit.components.v1 as components
-
-components.html("""
-<style>
-
-/* BUTTON STYLE */
-.stButton > button {
-    background: linear-gradient(135deg,#E8C97A,#C9A84C);
-    color: #080807;
-    font-weight: 600;
-    border: none;
-    border-radius: 3px;
-    letter-spacing: 0.1em;
-    font-size: 0.75rem;
-}
-
-/* SCROLL BUTTONS */
-.scroll-btn {
-    position: fixed;
-    right: 1.2rem;
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #E8C97A, #C9A84C);
-    color: #080807;
-    border: none;
-    cursor: pointer;
-    font-size: 1.3rem;
-    font-weight: 700;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 99999;
-}
-
-#scroll-top { bottom: 5.5rem; }
-#scroll-bot { bottom: 1.2rem; }
-
-/* NEW MESSAGE BADGE */
-#new-msg {
-    position: fixed;
-    right: 1.2rem;
-    bottom: 7.5rem;
-    background: #C9A84C;
-    color: black;
-    padding: 6px 10px;
-    border-radius: 20px;
-    font-size: 0.7rem;
-    display: none;
-    cursor: pointer;
-    z-index: 99999;
-}
-
-</style>
-
-<button id="scroll-top" class="scroll-btn">↑</button>
-<button id="scroll-bot" class="scroll-btn">↓</button>
-<div id="new-msg">New message ↓</div>
-
-<script>
-
-function getContainer() {
-    // Try multiple Streamlit containers safely
-    const selectors = [
-        '[data-testid="stAppViewContainer"]',
-        '[data-testid="stMainBlockContainer"]',
-        'section.main',
-        '.main'
-    ];
-
-    for (let sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) return el;
-    }
-
-    return document.documentElement;
-}
-
-function init() {
-
-    const container = getContainer();
-
-    if (!container) {
-        setTimeout(init, 300);
-        return;
-    }
-
-    let userScrolledUp = false;
-
-    function scrollToBottom() {
-        container.scrollTo({
-            top: container.scrollHeight,
-            behavior: "smooth"
-        });
-    }
-
-    function scrollToTop() {
-        container.scrollTo({
-            top: 0,
-            behavior: "smooth"
-        });
-    }
-
-    // BUTTONS
-    document.getElementById("scroll-top").onclick = scrollToTop;
-    document.getElementById("scroll-bot").onclick = scrollToBottom;
-
-    // SCROLL DETECTION
-    container.addEventListener("scroll", () => {
-
-        const atBottom =
-            container.scrollHeight - container.scrollTop - container.clientHeight < 50;
-
-        userScrolledUp = !atBottom;
-
-        document.getElementById("scroll-top").style.display =
-            container.scrollTop > 200 ? "flex" : "none";
-
-        document.getElementById("scroll-bot").style.display =
-            !atBottom ? "flex" : "none";
-    });
-
-    // NEW MESSAGE DETECTION
-    const observer = new MutationObserver(() => {
-
-        if (!userScrolledUp) {
-            scrollToBottom();
-        } else {
-            document.getElementById("new-msg").style.display = "block";
-        }
-    });
-
-    observer.observe(container, {
-        childList: true,
-        subtree: true
-    });
-
-    // NEW MESSAGE BUTTON
-    document.getElementById("new-msg").onclick = () => {
-        scrollToBottom();
-        document.getElementById("new-msg").style.display = "none";
-        userScrolledUp = false;
-    };
-
-    // INITIAL SCROLL
-    setTimeout(scrollToBottom, 700);
-
-}
-
-// WAIT FOR STREAMLIT TO FULLY LOAD
-setTimeout(init, 800);
-
-</script>
-""", height=0)
 
 # ════════════════════════════════════════════════════════════════
 # HELPERS
