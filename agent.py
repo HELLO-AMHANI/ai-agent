@@ -3,32 +3,33 @@
 #
 # ROOT CAUSES FIXED:
 #
-# 1. "Tried to use SessionInfo before it was initiated"
-#    LangChain's ChatOpenAI uses internal streaming callbacks
-#    that call Streamlit's thread-local session context. When
-#    the LLM runs inside the Streamlit main thread, any callback
-#    that inspects st.session_state triggers the SessionInfo error
-#    because the callback runs in a context that wasn't registered
-#    with Streamlit's session manager.
+# 1. HTTP 400 "temperature does not support 0.7 with this model"
+#    OpenAI's newer models (gpt-4o-mini and any o-series model)
+#    enforce temperature=1 as the ONLY accepted value at the API
+#    level. Sending any other value — including 0.7 — returns
+#    a hard 400 error before the request even reaches the LLM.
+#    All 3 retry attempts hit the same 400, hence the final
+#    "couldn't complete after 3 attempts" message.
+#    FIX: temperature=1  (the only universally supported value)
 #
-#    FIX: Run _run_loop() inside an isolated ThreadPoolExecutor
-#    worker. The worker thread has NO Streamlit context at all,
-#    so no callback can accidentally touch st.session_state.
-#    Results are passed back via the Future return value — clean.
+# 2. "Tried to use SessionInfo before it was initiated"
+#    LangChain's ChatOpenAI streaming callbacks inspect
+#    Streamlit's thread-local session context. Running the loop
+#    in the main Streamlit thread triggers this when callbacks
+#    fire outside the registered session scope.
+#    FIX: _run_loop() runs inside a ThreadPoolExecutor worker.
+#    Worker threads have ZERO Streamlit session context, so no
+#    callback can accidentally touch st.session_state.
 #
-# 2. "Bad message format"
-#    The LangChain AIMessage was being built with tool_calls that
-#    sometimes contained None id fields. Supabase/OpenAI rejects
-#    malformed tool_call objects.
-#
+# 3. "Bad message format" / None tool_call ids
+#    AIMessage tool_calls with None id fields are rejected.
 #    FIX: Sanitize every tool_call before appending to messages.
-#    Ensure id, name, args are all valid strings/dicts, never None.
 #
-# 3. "CONNECTING" noise in UI
+# 4. "CONNECTING" noise in UI
 #    LangChain httpx logger writes to stderr which Streamlit
-#    captures and shows in the spinner as "CONNECTING".
-#    FIX: Set loggers to CRITICAL level + StringIO redirect inside
-#    the isolated worker thread where it cannot touch Streamlit.
+#    captures in the spinner area.
+#    FIX: All loggers set to CRITICAL + StringIO redirect inside
+#    the isolated worker where it cannot touch Streamlit.
 # =============================================================
 
 import os
@@ -54,15 +55,17 @@ from langchain_core.messages import (
 from tools import amhani_tools
 
 
-# ── LLM — created once, reused ───────────────────────────────
+# ── LLM ──────────────────────────────────────────────────────
+# CRITICAL FIX: temperature=1 (not 0.7).
+# gpt-4o-mini and all o-series models reject any value other
+# than 1 at the API level with HTTP 400. This was the sole
+# cause of "couldn't complete after 3 attempts".
 llm = ChatOpenAI(
     model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-    temperature=0.7,
+    temperature=1,          # ← FIXED: was 0.7, only 1 is supported
     api_key=os.getenv("OPENAI_API_KEY"),
     request_timeout=60,
-    streaming=False,        # ← CRITICAL: streaming=True triggers
-                            #   the SessionInfo callback path in LangChain.
-                            #   Must be False to prevent it.
+    streaming=False,        # streaming=True triggers SessionInfo callbacks
 ).bind_tools(amhani_tools)
 
 TOOL_MAP = {t.name: t for t in amhani_tools}
@@ -101,16 +104,12 @@ SYSTEM_PROMPT = (
 
 # ═════════════════════════════════════════════════════════════
 # CORE LOOP — runs in an isolated worker thread
-# This is the critical fix for the SessionInfo error.
-# The worker thread has ZERO access to Streamlit's session
-# context, so no LangChain callback can trigger the error.
 # ═════════════════════════════════════════════════════════════
 def _run_loop(messages: list, max_iter: int = 10) -> dict:
     """
-    Tool-calling loop. Called from inside a ThreadPoolExecutor
-    worker — completely isolated from Streamlit's session context.
+    Tool-calling loop. Runs inside a ThreadPoolExecutor worker —
+    completely isolated from Streamlit's session context.
     """
-    # Suppress all output inside the worker
     _null = io.StringIO()
     _orig_out, _orig_err = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = _null
@@ -128,8 +127,7 @@ def _run_loop(messages: list, max_iter: int = 10) -> dict:
                     "intermediate_steps": intermediate,
                 }
 
-            # ── FIX: Sanitize AIMessage before appending ──────
-            # Ensure no None values in tool_calls — causes bad format
+            # Sanitize tool_calls — ensure no None id/name/args
             clean_tcs = []
             for tc in response.tool_calls:
                 clean_tcs.append({
@@ -153,7 +151,6 @@ def _run_loop(messages: list, max_iter: int = 10) -> dict:
                 fn = TOOL_MAP.get(tool_name)
                 if fn:
                     try:
-                        # Normalise args to string for tools that expect str
                         if isinstance(tool_args, dict):
                             raw = (
                                 str(list(tool_args.values())[0])
@@ -163,7 +160,6 @@ def _run_loop(messages: list, max_iter: int = 10) -> dict:
                         else:
                             raw = str(tool_args) if tool_args else ""
 
-                        # Restore output for tools that need it (e.g. execute_python)
                         sys.stdout, sys.stderr = _orig_out, _orig_err
                         result = fn.invoke(raw)
                         sys.stdout = sys.stderr = _null
@@ -200,13 +196,8 @@ def run_agent(
     timeout: int = 90,
 ) -> dict:
     """
-    Run the agent in an isolated worker thread.
+    Run the agent in an isolated worker thread (SessionInfo fix).
     Returns {"output": str, "intermediate_steps": list}.
-
-    KEY FIX: The ThreadPoolExecutor creates a brand-new thread
-    with no Streamlit session context attached. LangChain's
-    internal callbacks cannot reach st.session_state from there,
-    eliminating the "SessionInfo before initiated" error entirely.
     """
     if not question or not question.strip():
         return {"output": "Please enter a question.", "intermediate_steps": []}
@@ -227,7 +218,6 @@ def run_agent(
                 messages.extend(chat_history)
             messages.append(HumanMessage(content=full_input))
 
-            # ── Run in isolated worker thread ─────────────────
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 future = ex.submit(_run_loop, messages)
                 result = future.result(timeout=timeout)
@@ -240,7 +230,7 @@ def run_agent(
             return {
                 "output": (
                     "⏱️ Request timed out after 90 seconds.\n"
-                    "The data source may be slow right now. Please try again."
+                    "The data source may be slow. Please try again."
                 ),
                 "intermediate_steps": [],
             }
@@ -262,13 +252,13 @@ def run_agent(
     }
 
 
-# ── Memory helpers ────────────────────────────────────────────
+# ── Memory sync ───────────────────────────────────────────────
 def sync_memory(messages: list) -> list:
     """Convert Streamlit message history to LangChain message objects."""
     pairs = []
     i = 0
     while i < len(messages) - 1:
-        u = messages[i]; a = messages[i+1]
+        u = messages[i]; a = messages[i + 1]
         if u.get("role") == "user" and a.get("role") == "assistant":
             uc = (u.get("content") or "").strip()
             ac = (a.get("content") or "").strip()
@@ -295,15 +285,21 @@ if __name__ == "__main__":
             r = run_agent(ask)
             print(f"\n── AMHANi ──\n{r['output']}")
             if verbose:
-                for i, s in enumerate(r.get("intermediate_steps",[])):
-                    print(f"\nStep {i+1}: {s[0]}\n  Input: {str(s[1])[:200]}\n  Result: {str(s[2])[:300]}")
+                for i, s in enumerate(r.get("intermediate_steps", [])):
+                    print(
+                        f"\nStep {i+1}: {s[0]}\n"
+                        f"  Input:  {str(s[1])[:200]}\n"
+                        f"  Result: {str(s[2])[:300]}"
+                    )
         elif repl:
             print("AMHANi — type 'exit' to quit\n")
             history = []
             while True:
                 q = input("You: ").strip()
-                if q.lower() in ("exit","quit"): break
-                if not q: continue
+                if q.lower() in ("exit", "quit"):
+                    break
+                if not q:
+                    continue
                 r = run_agent(q, chat_history=history)
                 print(f"\nAMHANi: {r['output']}\n")
                 history.append(HumanMessage(content=q))
