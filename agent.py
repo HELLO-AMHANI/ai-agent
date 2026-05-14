@@ -1,15 +1,34 @@
 # =============================================================
-# agent.py — AMHANi ENTERPRISE
-# DIAGNOSIS FIX:
-#   - "Bad message format": _run_loop was appending raw response
-#     object which LangChain couldn't serialize consistently.
-#     FIX: Explicitly reconstruct AIMessage with clean content.
-#   - "CONNECTING" in UI: LangChain still output to stderr even
-#     with verbose=False. FIX: Redirect both stdout and stderr
-#     during tool execution.
-#   - agent_executor not defined but called: removed entirely,
-#     _run_loop is the sole execution path.
-#   - sync_memory defined 3 times: single clean definition only.
+# agent.py — AMHANi ENTERPRISE v4
+#
+# ROOT CAUSES FIXED:
+#
+# 1. "Tried to use SessionInfo before it was initiated"
+#    LangChain's ChatOpenAI uses internal streaming callbacks
+#    that call Streamlit's thread-local session context. When
+#    the LLM runs inside the Streamlit main thread, any callback
+#    that inspects st.session_state triggers the SessionInfo error
+#    because the callback runs in a context that wasn't registered
+#    with Streamlit's session manager.
+#
+#    FIX: Run _run_loop() inside an isolated ThreadPoolExecutor
+#    worker. The worker thread has NO Streamlit context at all,
+#    so no callback can accidentally touch st.session_state.
+#    Results are passed back via the Future return value — clean.
+#
+# 2. "Bad message format"
+#    The LangChain AIMessage was being built with tool_calls that
+#    sometimes contained None id fields. Supabase/OpenAI rejects
+#    malformed tool_call objects.
+#
+#    FIX: Sanitize every tool_call before appending to messages.
+#    Ensure id, name, args are all valid strings/dicts, never None.
+#
+# 3. "CONNECTING" noise in UI
+#    LangChain httpx logger writes to stderr which Streamlit
+#    captures and shows in the spinner as "CONNECTING".
+#    FIX: Set loggers to CRITICAL level + StringIO redirect inside
+#    the isolated worker thread where it cannot touch Streamlit.
 # =============================================================
 
 import os
@@ -17,17 +36,16 @@ import sys
 import io
 import json
 import logging
+import concurrent.futures
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── Suppress ALL LangChain/OpenAI output ─────────────────────
-# This permanently stops CONNECTING/RUNNING from appearing in UI
-logging.getLogger("langchain").setLevel(logging.CRITICAL)
-logging.getLogger("langchain_core").setLevel(logging.CRITICAL)
-logging.getLogger("langchain_openai").setLevel(logging.CRITICAL)
-logging.getLogger("openai").setLevel(logging.CRITICAL)
-logging.getLogger("httpx").setLevel(logging.CRITICAL)
-logging.getLogger("httpcore").setLevel(logging.CRITICAL)
+# ── Kill all LangChain/OpenAI logging before import ──────────
+for _logger_name in (
+    "langchain", "langchain_core", "langchain_openai",
+    "openai", "httpx", "httpcore", "urllib3",
+):
+    logging.getLogger(_logger_name).setLevel(logging.CRITICAL)
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import (
@@ -36,191 +54,163 @@ from langchain_core.messages import (
 from tools import amhani_tools
 
 
-# ── LLM ──────────────────────────────────────────────────────
+# ── LLM — created once, reused ───────────────────────────────
 llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    temperature=1,
+    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+    temperature=0.7,
     api_key=os.getenv("OPENAI_API_KEY"),
     request_timeout=60,
+    streaming=False,        # ← CRITICAL: streaming=True triggers
+                            #   the SessionInfo callback path in LangChain.
+                            #   Must be False to prevent it.
 ).bind_tools(amhani_tools)
 
-
-# ── Tool lookup ───────────────────────────────────────────────
-TOOL_MAP = {tool.name: tool for tool in amhani_tools}
+TOOL_MAP = {t.name: t for t in amhani_tools}
 
 
 # ── System prompt ─────────────────────────────────────────────
 SYSTEM_PROMPT = (
     "You are AMHANi, an expert AI financial consultant built by AMHANi Enterprise.\n\n"
 
-    "TOOL SELECTION — follow these exactly:\n"
-    "- Any stock ticker (AAPL, TSLA, DANGOTE)      → get_stock_price\n"
-    "- Currency conversion (USD→NGN, any FX pair)  → convert_currency\n"
-    "- Crypto prices (BTC, ETH, BNB, any coin)     → get_crypto_price\n"
-    "- BTC 4-hour / intraday crypto levels         → get_crypto_price input='BTC,4h'\n"
-    "- Global market indices snapshot              → get_market_overview\n"
-    "- Price-to-Earnings ratio                     → calculate_pe_ratio\n"
-    "- Compound interest / loan / ROI / break-even → financial_calculator\n"
-    "- Analyse JSON financial data                 → analyse_financial_data\n"
-    "- Stock chart or graph                        → generate_stock_chart\n"
-    "- Python code / loops / custom calculations   → execute_python\n"
-    "- Complex multi-step task                     → plan_task FIRST\n\n"
-# In agent.py SYSTEM_PROMPT, add:
-    "- US30 4H / SPX 4H / index 4-hour levels  → get_index_4h\n"
-    "- BTC 4h / ETH 4h / crypto 4-hour levels  → get_crypto_price with '4h' in input\n"
+    "TOOL SELECTION — follow exactly:\n"
+    "- Stock price (AAPL, TSLA, NVDA, any ticker)    → get_stock_price\n"
+    "- Currency conversion (USD→NGN, any FX)         → convert_currency\n"
+    "- Crypto prices (BTC, ETH, BNB, any coin)       → get_crypto_price\n"
+    "- Crypto 4H analysis (BTC 4h, ETH 4h)           → get_crypto_price input='COIN,4h'\n"
+    "- Index 4H (US30, SPX, NAS100, GOLD, OIL)       → get_index_4h\n"
+    "- Insider trades / SEC Form 4 filings            → get_insider_trades\n"
+    "- Financial statements, ratios, P/E, margins     → get_stock_financials\n"
+    "- Nigerian stocks / NGX market data              → get_ngn_market\n"
+    "- Global indices snapshot                        → get_market_overview\n"
+    "- P/E ratio from price + EPS                    → calculate_pe_ratio\n"
+    "- Compound interest / loan / ROI / break-even   → financial_calculator\n"
+    "- Analyse CSV/JSON financial data                → analyse_financial_data\n"
+    "- Stock chart or price graph                     → generate_stock_chart\n"
+    "- Custom Python / complex calculation            → execute_python\n"
+    "- Multi-step complex request                     → plan_task FIRST\n\n"
 
     "BEHAVIOUR:\n"
-    "1. Answer the CURRENT question only. Do not repeat previous answers.\n"
-    "2. Never ask clarifying questions for simple requests — use the tool immediately.\n"
-    "3. If a tool returns a rate-limit or unavailable message — report it honestly.\n"
-    "   Never invent numbers or return NaN to the user.\n"
-    "4. Use ₦ for Nigerian Naira. Use $ for USD.\n"
-    "5. Be concise and professional."
+    "1. Answer the CURRENT question only.\n"
+    "2. Never ask clarifying questions for simple data requests — call the tool.\n"
+    "3. If a tool returns unavailable or error — report it honestly, never invent data.\n"
+    "4. Use ₦ for Nigerian Naira, $ for USD.\n"
+    "5. Be concise, precise, and professional.\n"
+    "6. For insider trades: explain what large buys/sells mean for investors."
 )
 
 
-# ── Core agentic loop ─────────────────────────────────────────
-def _run_loop(messages: list, max_iterations: int = 10) -> dict:
+# ═════════════════════════════════════════════════════════════
+# CORE LOOP — runs in an isolated worker thread
+# This is the critical fix for the SessionInfo error.
+# The worker thread has ZERO access to Streamlit's session
+# context, so no LangChain callback can trigger the error.
+# ═════════════════════════════════════════════════════════════
+def _run_loop(messages: list, max_iter: int = 10) -> dict:
     """
-    Tool-calling loop.
-    Sends messages → executes any tool calls → loops until final text answer.
-    FIX: Redirects stdout/stderr during execution to prevent UI noise.
+    Tool-calling loop. Called from inside a ThreadPoolExecutor
+    worker — completely isolated from Streamlit's session context.
     """
-    intermediate_steps = []
+    # Suppress all output inside the worker
+    _null = io.StringIO()
+    _orig_out, _orig_err = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = _null
 
-    # Redirect stdout+stderr during the entire loop
-    _old_stdout = sys.stdout
-    _old_stderr = sys.stderr
-    _dev_null   = io.StringIO()
+    intermediate = []
 
     try:
-        sys.stdout = _dev_null
-        sys.stderr = _dev_null
-
-        for _ in range(max_iterations):
+        for _ in range(max_iter):
             response = llm.invoke(messages)
 
-            # No tool calls — final answer
             if not response.tool_calls:
-                sys.stdout = _old_stdout
-                sys.stderr = _old_stderr
+                sys.stdout, sys.stderr = _orig_out, _orig_err
                 return {
                     "output": response.content or "",
-                    "intermediate_steps": intermediate_steps,
+                    "intermediate_steps": intermediate,
                 }
 
-            # Restore output temporarily so tool results print correctly
-            sys.stdout = _old_stdout
-            sys.stderr = _old_stderr
+            # ── FIX: Sanitize AIMessage before appending ──────
+            # Ensure no None values in tool_calls — causes bad format
+            clean_tcs = []
+            for tc in response.tool_calls:
+                clean_tcs.append({
+                    "id":   str(tc.get("id") or f"call_{len(intermediate)}"),
+                    "name": str(tc.get("name") or ""),
+                    "args": tc.get("args") or {},
+                    "type": "tool_call",
+                })
 
-            # ── FIX: explicitly reconstruct AIMessage ──────────
-            # Appending the raw response object directly caused
-            # "bad message format" errors in some LangChain versions.
-            # Explicitly building the AIMessage is stable across versions.
             ai_msg = AIMessage(
                 content=response.content or "",
-                tool_calls=response.tool_calls,
+                tool_calls=clean_tcs,
             )
             messages.append(ai_msg)
 
-            # Suppress output again for tool execution
-            sys.stdout = _dev_null
-            sys.stderr = _dev_null
+            for tc in clean_tcs:
+                tool_name = tc["name"]
+                tool_args = tc["args"]
+                tool_id   = tc["id"]
 
-            for tc in response.tool_calls:
-                tool_name  = tc.get("name", "")
-                tool_input = tc.get("args", {})
-                tool_id    = tc.get("id", "")
-
-                tool_fn = TOOL_MAP.get(tool_name)
-                if tool_fn:
+                fn = TOOL_MAP.get(tool_name)
+                if fn:
                     try:
-                        # Normalise dict input to string
-                        if isinstance(tool_input, dict):
+                        # Normalise args to string for tools that expect str
+                        if isinstance(tool_args, dict):
                             raw = (
-                                str(list(tool_input.values())[0])
-                                if len(tool_input) == 1
-                                else json.dumps(tool_input)
+                                str(list(tool_args.values())[0])
+                                if len(tool_args) == 1
+                                else json.dumps(tool_args)
                             )
                         else:
-                            raw = str(tool_input) if tool_input else ""
+                            raw = str(tool_args) if tool_args else ""
 
-                        # Restore output around tool call so tool's
-                        # own print() still works (execute_python etc.)
-                        sys.stdout = _old_stdout
-                        sys.stderr = _old_stderr
-                        result = tool_fn.invoke(raw)
-                        sys.stdout = _dev_null
-                        sys.stderr = _dev_null
+                        # Restore output for tools that need it (e.g. execute_python)
+                        sys.stdout, sys.stderr = _orig_out, _orig_err
+                        result = fn.invoke(raw)
+                        sys.stdout = sys.stderr = _null
 
                     except Exception as e:
-                        result = f"Tool error: {e}"
+                        result = f"Tool error ({tool_name}): {e}"
                 else:
                     result = f"Tool '{tool_name}' not found."
 
-                intermediate_steps.append((tool_name, tool_input, str(result)))
-                messages.append(
-                    ToolMessage(content=str(result), tool_call_id=tool_id)
-                )
+                intermediate.append((tool_name, tool_args, str(result)))
+                messages.append(ToolMessage(
+                    content=str(result),
+                    tool_call_id=tool_id,
+                ))
 
-        sys.stdout = _old_stdout
-        sys.stderr = _old_stderr
+        sys.stdout, sys.stderr = _orig_out, _orig_err
         return {
-            "output": "Max iterations reached. Please try a simpler request.",
-            "intermediate_steps": intermediate_steps,
+            "output": "Max iterations reached. Try a simpler request.",
+            "intermediate_steps": intermediate,
         }
 
     except Exception as e:
-        sys.stdout = _old_stdout
-        sys.stderr = _old_stderr
+        sys.stdout, sys.stderr = _orig_out, _orig_err
         raise e
 
 
-# ── Memory sync ───────────────────────────────────────────────
-def sync_memory(messages: list) -> list:
-    """
-    Convert Streamlit message history to LangChain message objects.
-    Returns the last 6 clean user/assistant pairs only.
-    Called by app.py — the RETURN VALUE must be passed to run_agent.
-    """
-    pairs = []
-    i = 0
-    while i < len(messages) - 1:
-        u = messages[i]
-        a = messages[i + 1]
-        if u.get("role") == "user" and a.get("role") == "assistant":
-            uc = (u.get("content") or "").strip()
-            ac = (a.get("content") or "").strip()
-            if uc and ac:
-                pairs.append((uc, ac[:500]))
-        i += 2
-
-    history = []
-    for uc, ac in pairs[-6:]:
-        history.append(HumanMessage(content=uc))
-        history.append(AIMessage(content=ac))
-
-    return history
-
-
-# ── Public run function ───────────────────────────────────────
+# ═════════════════════════════════════════════════════════════
+# PUBLIC API — called by app.py
+# ═════════════════════════════════════════════════════════════
 def run_agent(
     question: str,
     long_term_context: str = "",
     chat_history: list = None,
+    timeout: int = 90,
 ) -> dict:
     """
-    Run the agent with up to 3 self-correcting retry attempts.
+    Run the agent in an isolated worker thread.
+    Returns {"output": str, "intermediate_steps": list}.
 
-    Args:
-        question:           The user's current message (string).
-        long_term_context:  Facts from Supabase memory store (optional).
-        chat_history:       List of HumanMessage/AIMessage from sync_memory().
+    KEY FIX: The ThreadPoolExecutor creates a brand-new thread
+    with no Streamlit session context attached. LangChain's
+    internal callbacks cannot reach st.session_state from there,
+    eliminating the "SessionInfo before initiated" error entirely.
     """
     if not question or not question.strip():
         return {"output": "Please enter a question.", "intermediate_steps": []}
 
-    # Prefix long-term context cleanly
     full_input = question.strip()
     if long_term_context and long_term_context.strip():
         full_input = (
@@ -233,33 +223,63 @@ def run_agent(
     for attempt in range(3):
         try:
             messages = [SystemMessage(content=SYSTEM_PROMPT)]
-
             if chat_history:
                 messages.extend(chat_history)
-
             messages.append(HumanMessage(content=full_input))
 
-            result = _run_loop(messages, max_iterations=10)
+            # ── Run in isolated worker thread ─────────────────
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                future = ex.submit(_run_loop, messages)
+                result = future.result(timeout=timeout)
+
             output = (result.get("output") or "").strip()
-            if output and len(output) > 10:
+            if output and len(output) > 5:
                 return result
 
+        except concurrent.futures.TimeoutError:
+            return {
+                "output": (
+                    "⏱️ Request timed out after 90 seconds.\n"
+                    "The data source may be slow right now. Please try again."
+                ),
+                "intermediate_steps": [],
+            }
         except Exception as e:
             last_error = str(e)
             if attempt < 2:
                 full_input = (
-                    f"Previous attempt failed: {last_error}. "
-                    f"Try a different approach to answer: {question}"
+                    f"Previous attempt had an error: {last_error}. "
+                    f"Try a different approach for: {question}"
                 )
 
     return {
         "output": (
-            f"I could not complete that request after 3 attempts.\n"
-            f"Error: {last_error}\n"
+            f"I couldn't complete that request after 3 attempts.\n"
+            f"Last error: {last_error}\n"
             f"Please rephrase or try a simpler request."
         ),
         "intermediate_steps": [],
     }
+
+
+# ── Memory helpers ────────────────────────────────────────────
+def sync_memory(messages: list) -> list:
+    """Convert Streamlit message history to LangChain message objects."""
+    pairs = []
+    i = 0
+    while i < len(messages) - 1:
+        u = messages[i]; a = messages[i+1]
+        if u.get("role") == "user" and a.get("role") == "assistant":
+            uc = (u.get("content") or "").strip()
+            ac = (a.get("content") or "").strip()
+            if uc and ac:
+                pairs.append((uc, ac[:500]))
+        i += 2
+    history = []
+    for uc, ac in pairs[-6:]:
+        history.append(HumanMessage(content=uc))
+        history.append(AIMessage(content=ac))
+    return history
 
 
 # ── CLI ───────────────────────────────────────────────────────
@@ -267,36 +287,28 @@ if __name__ == "__main__":
     import click
 
     @click.command()
-    @click.option("--ask",     default=None, help="Single question")
-    @click.option("--repl",    is_flag=True,  help="Interactive mode")
-    @click.option("--verbose", is_flag=True,  help="Show reasoning steps")
+    @click.option("--ask",     default=None,  help="Single question")
+    @click.option("--repl",    is_flag=True,   help="Interactive REPL")
+    @click.option("--verbose", is_flag=True,   help="Show reasoning steps")
     def cli(ask, repl, verbose):
         if ask:
-            result = run_agent(ask)
-            print("\n── AMHANi ──────────────────────────────")
-            print(result["output"])
+            r = run_agent(ask)
+            print(f"\n── AMHANi ──\n{r['output']}")
             if verbose:
-                steps = result.get("intermediate_steps", [])
-                for i, step in enumerate(steps):
-                    print(f"\nStep {i+1}: {step[0]}")
-                    print(f"  Input:  {str(step[1])[:200]}")
-                    print(f"  Result: {str(step[2])[:300]}")
-
+                for i, s in enumerate(r.get("intermediate_steps",[])):
+                    print(f"\nStep {i+1}: {s[0]}\n  Input: {str(s[1])[:200]}\n  Result: {str(s[2])[:300]}")
         elif repl:
-            print("AMHANi Agent — type 'exit' to quit\n")
+            print("AMHANi — type 'exit' to quit\n")
             history = []
             while True:
                 q = input("You: ").strip()
-                if q.lower() in ("exit", "quit"):
-                    break
-                if not q:
-                    continue
-                result = run_agent(q, chat_history=history)
-                answer = result["output"]
-                print(f"\nAMHANi: {answer}\n")
+                if q.lower() in ("exit","quit"): break
+                if not q: continue
+                r = run_agent(q, chat_history=history)
+                print(f"\nAMHANi: {r['output']}\n")
                 history.append(HumanMessage(content=q))
-                history.append(AIMessage(content=answer))
+                history.append(AIMessage(content=r["output"]))
         else:
-            print("Use --ask 'question' or --repl for interactive mode.")
+            print("Use --ask 'question' or --repl")
 
     cli()
