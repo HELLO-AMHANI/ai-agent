@@ -82,7 +82,7 @@ components.html("""
       "  transition:transform .15s,box-shadow .15s;" +
       "  padding:0; line-height:1;" +
       "}" +
-      "#amhani-top { bottom:1.2rem; }" +
+      "#amhani-top { bottom:5.5rem; }" +
       "#amhani-bot { bottom:1.2rem; }" +
       "#amhani-top:hover,#amhani-bot:hover {" +
       "  transform:scale(1.12);" +
