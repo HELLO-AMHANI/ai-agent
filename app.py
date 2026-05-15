@@ -47,74 +47,236 @@ from chat_store import save_message, load_messages, clear_chat
 #   - getContainer() called at click-time → always finds real container
 # ════════════════════════════════════════════════════════════════
 components.html("""
-<html><body style="margin:0;padding:0;background:transparent;">
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  /* Zero out the iframe itself — takes no visual space */
+  html, body { margin:0; padding:0; width:0; height:0;
+               overflow:hidden; background:transparent; }
+</style>
+</head>
+<body>
 <script>
-(function(){
-  try {
-    var doc = window.parent.document;
-    var win = window.parent;
-
-    if (!doc.getElementById("_as")) {
-      var s = doc.createElement("style");
-      s.id = "_as";
-      s.textContent =
-        "#_au,#_ad{position:fixed!important;right:18px!important;" +
-        "width:44px!important;height:44px!important;border-radius:50%!important;" +
-        "background:linear-gradient(135deg,#E8C97A,#C9A84C)!important;" +
-        "color:#080807!important;border:none!important;cursor:pointer!important;" +
-        "font-size:22px!important;font-weight:bold!important;" +
-        "display:flex!important;align-items:center!important;" +
-        "justify-content:center!important;z-index:2147483647!important;" +
-        "box-shadow:0 3px 14px rgba(0,0,0,0.4)!important;" +
-        "padding:0!important;line-height:1!important;}" +
-        "#_au{bottom:92px!important;}#_ad{bottom:20px!important;}" +
-        "#_au:hover,#_ad:hover{transform:scale(1.12)!important;}";
-      doc.head.appendChild(s);
-    }
-
-    if (!doc.getElementById("_au")) {
-      var u=doc.createElement("button");
-      u.id="_au";u.title="Scroll to top";u.innerHTML="&#8679;";
-      doc.body.appendChild(u);
-      var d=doc.createElement("button");
-      d.id="_ad";d.title="Scroll to bottom";d.innerHTML="&#8681;";
-      doc.body.appendChild(d);
-    }
-
-    function getC(){
-      var ss=["[data-testid='stAppViewContainer']",
-              "[data-testid='stMainBlockContainer']",
-              "section.main",".main"];
-      for(var i=0;i<ss.length;i++){
-        var e=doc.querySelector(ss[i]);
-        if(e&&e.scrollHeight>e.clientHeight+20)return e;
-      }
-      var best=null,bh=0;
-      doc.querySelectorAll("div").forEach(function(e){
-        var s=e.scrollHeight-e.clientHeight;
-        if(s>bh){bh=s;best=e;}
-      });
-      return best||doc.documentElement;
-    }
-
-    doc.getElementById("_au").onclick=function(e){
-      e.preventDefault();
-      var c=getC();
-      try{c.scrollTo({top:0,behavior:"smooth"});}catch(_){c.scrollTop=0;}
-    };
-    doc.getElementById("_ad").onclick=function(e){
-      e.preventDefault();
-      var c=getC();
-      try{c.scrollTo({top:c.scrollHeight,behavior:"smooth"});}
-      catch(_){c.scrollTop=c.scrollHeight;}
-    };
-  } catch(err) {
-    console.error("[AMHANi scroll]",err);
+(function () {
+ 
+  /* ── All DOM work on the PARENT page, not this iframe ── */
+  var D = window.parent.document;
+  var W = window.parent;
+ 
+  /* ── STEP 1: Inject CSS into parent <head> once ────────── */
+  if (!D.getElementById("amhani-scr-style")) {
+    var s = D.createElement("style");
+    s.id = "amhani-scr-style";
+    s.textContent =
+      "#amhani-top, #amhani-bot {" +
+      "  position:fixed; right:1.2rem;" +
+      "  width:42px; height:42px; border-radius:50%;" +
+      "  background:linear-gradient(135deg,#E8C97A,#C9A84C);" +
+      "  color:#080807; border:none; cursor:pointer;" +
+      "  font-size:1.5rem; font-weight:700;" +
+      "  display:none;" +           /* flex when visible */
+      "  align-items:center; justify-content:center;" +
+      "  z-index:2147483647;" +     /* max z-index — always on top */
+      "  box-shadow:0 3px 14px rgba(201,168,76,0.45);" +
+      "  transition:transform .15s,box-shadow .15s;" +
+      "  padding:0; line-height:1;" +
+      "}" +
+      "#amhani-top { bottom:5.5rem; }" +
+      "#amhani-bot { bottom:1.2rem; }" +
+      "#amhani-top:hover,#amhani-bot:hover {" +
+      "  transform:scale(1.12);" +
+      "  box-shadow:0 5px 20px rgba(201,168,76,0.6);" +
+      "}" +
+      "#amhani-badge {" +
+      "  position:fixed; right:1.2rem; bottom:7.8rem;" +
+      "  background:#C9A84C; color:#080807;" +
+      "  padding:5px 12px; border-radius:20px;" +
+      "  font-size:0.72rem; font-weight:600;" +
+      "  display:none; cursor:pointer; z-index:2147483647;" +
+      "  box-shadow:0 2px 10px rgba(201,168,76,0.4);" +
+      "  font-family:Montserrat,sans-serif;" +
+      "}";
+    D.head.appendChild(s);
   }
+ 
+  /* ── STEP 2: Inject buttons into parent <body> once ─────── */
+  if (!D.getElementById("amhani-top")) {
+    var bT = D.createElement("button");
+    bT.id = "amhani-top"; bT.title = "Scroll to top";
+    bT.innerHTML = "&#8679;";
+    D.body.appendChild(bT);
+ 
+    var bB = D.createElement("button");
+    bB.id = "amhani-bot"; bB.title = "Scroll to bottom";
+    bB.innerHTML = "&#8681;";
+    D.body.appendChild(bB);
+ 
+    var bG = D.createElement("div");
+    bG.id = "amhani-badge";
+    bG.innerHTML = "New message &#8681;";
+    D.body.appendChild(bG);
+  }
+ 
+  var btnTop = D.getElementById("amhani-top");
+  var btnBot = D.getElementById("amhani-bot");
+  var badge  = D.getElementById("amhani-badge");
+ 
+  /* ── STEP 3: ALL candidate scroll containers ─────────────
+     Detail 1's key insight: we don't know which one Streamlit
+     is using in the deployed version. Fire at ALL of them.
+     Whichever has a live scrollbar will respond.             */
+  var SELECTORS = [
+    "[data-testid='stAppViewContainer']",
+    "[data-testid='stMainBlockContainer']",
+    "[data-testid='block-container']",
+    "section.main",
+    ".main",
+    ".stMain",
+  ];
+ 
+  function getAllContainers() {
+    var found = [];
+    for (var i = 0; i < SELECTORS.length; i++) {
+      var el = D.querySelector(SELECTORS[i]);
+      if (el) found.push(el);
+    }
+    return found;
+  }
+ 
+  /* ── STEP 4: Scroll functions blast ALL containers ──────── */
+  function scrollToTop() {
+    /* Fire at every candidate simultaneously */
+    var cs = getAllContainers();
+    for (var i = 0; i < cs.length; i++) {
+      cs[i].scrollTop = 0;
+      try { cs[i].scrollTo({ top: 0, behavior: "smooth" }); } catch(e) {}
+    }
+    /* Also try window-level scrolling as universal fallback */
+    try { W.scrollTo({ top: 0, behavior: "smooth" }); } catch(e) {}
+    D.documentElement.scrollTop = 0;
+    D.body.scrollTop = 0;
+  }
+ 
+  function scrollToBottom() {
+    var cs = getAllContainers();
+    /* Find the tallest scrollable one for accurate bottom target */
+    var best = null, bestH = 0;
+    for (var i = 0; i < cs.length; i++) {
+      var sh = cs[i].scrollHeight;
+      if (sh > bestH) { bestH = sh; best = cs[i]; }
+      /* Also blast all of them */
+      cs[i].scrollTop = cs[i].scrollHeight;
+      try { cs[i].scrollTo({ top: cs[i].scrollHeight, behavior: "smooth" }); } catch(e) {}
+    }
+    try { W.scrollTo({ top: D.body.scrollHeight, behavior: "smooth" }); } catch(e) {}
+    D.documentElement.scrollTop = D.documentElement.scrollHeight;
+  }
+ 
+  /* ── STEP 5: Detect scroll position ─────────────────────── */
+  var userScrolledUp = false;
+ 
+  function checkScroll() {
+    var cs       = getAllContainers();
+    var scrolled = 0;
+    var maxH     = 0;
+    var fromBot  = 9999;
+ 
+    for (var i = 0; i < cs.length; i++) {
+      var el   = cs[i];
+      var sh   = el.scrollHeight;
+      var st   = el.scrollTop;
+      var ch   = el.clientHeight;
+      var gap  = sh - st - ch;
+      if (sh > maxH) {
+        maxH    = sh;
+        scrolled = st;
+        fromBot  = gap;
+      }
+    }
+ 
+    var atBottom = fromBot < 60;
+    userScrolledUp = !atBottom;
+ 
+    /* Show/hide top button */
+    btnTop.style.display = scrolled > 200 ? "flex" : "none";
+    /* Show/hide bottom button */
+    btnBot.style.display = !atBottom ? "flex" : "none";
+    /* Hide badge when at bottom */
+    if (atBottom) badge.style.display = "none";
+  }
+ 
+  /* ── STEP 6: Attach scroll listeners to all containers ──── */
+  function attachListeners(cs) {
+    for (var i = 0; i < cs.length; i++) {
+      cs[i].addEventListener("scroll", checkScroll, { passive: true });
+    }
+    /* Window-level listener as universal fallback */
+    W.addEventListener("scroll", checkScroll, { passive: true });
+  }
+ 
+  /* ── STEP 7: Button click handlers ──────────────────────── */
+  btnTop.onclick = function () { scrollToTop(); };
+  btnBot.onclick = function () { scrollToBottom(); };
+  badge.onclick  = function () {
+    scrollToBottom();
+    badge.style.display = "none";
+    userScrolledUp = false;
+  };
+ 
+  /* ── STEP 8: MutationObserver for new messages ───────────── */
+  function attachObserver(container) {
+    var obs = new MutationObserver(function () {
+      if (!userScrolledUp) {
+        scrollToBottom();
+      } else {
+        badge.style.display = "flex";
+      }
+    });
+    obs.observe(container, { childList: true, subtree: true });
+  }
+ 
+  /* ── STEP 9: Init — retry until containers are real ─────── */
+  var tries = 0;
+  function init() {
+    tries++;
+    var cs = getAllContainers();
+ 
+    /* Confirm at least one is a real scrollable container */
+    var ready = false;
+    for (var i = 0; i < cs.length; i++) {
+      if (cs[i].scrollHeight > 100) { ready = true; break; }
+    }
+ 
+    if (!ready && tries < 20) {
+      setTimeout(init, 200);
+      return;
+    }
+ 
+    attachListeners(cs);
+ 
+    /* Observe the tallest container for DOM changes (new messages) */
+    var best = null, bestH = 0;
+    for (var i = 0; i < cs.length; i++) {
+      if (cs[i].scrollHeight > bestH) { bestH = cs[i].scrollHeight; best = cs[i]; }
+    }
+    if (best) attachObserver(best);
+ 
+    /* Scroll to bottom on first load */
+    setTimeout(scrollToBottom, 800);
+ 
+    /* Run initial show/hide check */
+    checkScroll();
+  }
+ 
+  /* Start after Streamlit React tree is mounted */
+  setTimeout(init, 600);
+ 
 })();
 </script>
-</body></html>
-""", height=1, scrolling=False)
+</body>
+</html>
+""", height=0, scrolling=False)
 
 
 # ════════════════════════════════════════════════════════════════
