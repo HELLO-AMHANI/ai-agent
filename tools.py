@@ -40,7 +40,7 @@ from langchain.tools import tool
 # ── API Keys (from env / Streamlit secrets) ───────────────────
 _FMP_KEY     = lambda: os.getenv("FMP_API_KEY", "")
 _D2V_KEY     = lambda: os.getenv("D2V_API_KEY", "")
-_NGNMKT_KEY  = lambda: os.getenv("NGNMARKET_API_KEY", "")
+_X_KEY  = lambda: os.getenv("X_API_KEY", "")
 
 
 # ══════════════════════════════════════════════════════════════
