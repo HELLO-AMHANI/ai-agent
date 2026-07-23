@@ -74,3 +74,6 @@ ai-agent/
 - [OpenAI](https://openai.com) — LLM (gpt-5-mini)
 - [yfinance](https://github.com/ranaroussi/yfinance) — Stock data
 - [SerpAPI](https://serpapi.com) — Web search
+
+
+**NOTE: Most files are gitignored for privacy reasons**
