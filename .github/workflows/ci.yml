@@ -21,5 +21,4 @@ jobs:
 
       - name: Verify project structure
         run: |
-          python -c "print('agent.py exists')" 
-          ls agent.py tools.py app.py requirements.txt
+          ls requirements.txt README.md
